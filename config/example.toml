@@ -1,0 +1,39 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PitWall — plantilla de configuracion del usuario
+#
+# Copie este fichero, descomente lo que quiera cambiar y arranque PitWall con
+# la configuracion resultante. Todo lo que no aparezca aqui toma su valor por
+# defecto, documentado en config/default.toml.
+#
+# En el juego: Game Options -> Settings -> UDP Telemetry Settings
+#
+#     UDP Telemetry     On
+#     UDP IP Address    127.0.0.1   (o la IP de este PC si juega en consola)
+#     UDP Port          20777
+#     UDP Format        2026 con el Season Pack, 2025 con el juego base
+# ─────────────────────────────────────────────────────────────────────────────
+
+[net]
+# Cambielo solo si en el juego configuro otro puerto.
+# port = 20777
+
+# Si juega en PS5 o Xbox, PitWall debe escuchar en todas las interfaces
+# y en el juego debe ponerse la IP de este PC.
+# bind = "0.0.0.0"
+
+[recording]
+# Desactive la grabacion si tiene poco espacio en disco. Perdera la posibilidad
+# de revisar y reprocesar la sesion despues.
+# enabled = false
+
+# Carpeta donde se guardan las capturas.
+# directory = "D:/PitWall/captures"
+
+[storage]
+# Cuanto espacio puede ocupar el historico antes de empezar a borrar lo antiguo.
+# retentionRawGb = 20
+# retentionDays = 90
+
+[logging]
+# Suba a "debug" si algo no funciona y quiere enviar un informe.
+# level = "debug"

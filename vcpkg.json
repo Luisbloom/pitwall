@@ -1,0 +1,38 @@
+{
+  "name": "pitwall",
+  "version-string": "0.1.0",
+  "description": "PitWall - telemetria e ingenieria de carrera para EA SPORTS F1 25 y 2026 Season Pack",
+  "$comment-01": [
+    "MANIFIESTO DE DEPENDENCIAS (F0-04, RNF-092).",
+    "'builtin-baseline' fija el arbol completo de versiones del registro: dos maquinas que",
+    "configuren con este manifiesto obtienen exactamente las mismas versiones.",
+    "Baseline = tag 2026.07.29 del registro oficial.",
+    "",
+    "Este manifiesto se usa cuando hay una instalacion de vcpkg (VCPKG_ROOT o",
+    "CMAKE_TOOLCHAIN_FILE). Sin ella, cmake/Dependencies.cmake descarga las mismas",
+    "bibliotecas por commit exacto. Las dos rutas deben declarar la misma version."
+  ],
+  "$comment-02-licencias": [
+    "Verificacion de licencias permisivas (F0-04). Revisado a mano el 2026-09-11:",
+    "  catch2       -> BSL-1.0 (Boost Software License 1.0)  permisiva  OK",
+    "  tomlplusplus -> MIT                                    permisiva  OK",
+    "Quedan prohibidas GPL, LGPL y AGPL: PitWall se distribuye como binario propietario",
+    "del usuario en un instalador de Windows (RNF-093), sin enlace dinamico a terceros.",
+    "Toda dependencia nueva exige repetir esta verificacion antes de anadirse."
+  ],
+  "dependencies": [
+    "tomlplusplus"
+  ],
+  "features": {
+    "tests": {
+      "description": "Marco de pruebas del proyecto (F0-11)",
+      "dependencies": [
+        "catch2"
+      ]
+    }
+  },
+  "default-features": [
+    "tests"
+  ],
+  "builtin-baseline": "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+}

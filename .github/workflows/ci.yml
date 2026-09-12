@@ -1,0 +1,117 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Integracion continua de PitWall (F0-12).
+#
+# Dos caminos, como fija ADR-016:
+#
+#   windows-msvc   la plataforma objetivo. Compila, prueba y pasa el
+#                  desinfectante de direcciones. La suite completa debe poder
+#                  ejecutarse en Windows SIN Docker, y aqui se verifica.
+#   linux-clang    segunda opinion del compilador, demostracion de que el nucleo
+#                  no depende de Windows (RNF-091) y, sobre todo,
+#                  ThreadSanitizer, que en MSVC no existe.
+#
+# Advertencias como errores en ambos (RNF-086): PW_WARNINGS_AS_ERRORS viene ya
+# en ON desde los presets.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Frontera de modulos (F0-13, RNF-084) ───────────────────────────────────
+  # Va primero y dura segundos: si el grafo se ha degradado, no merece la pena
+  # compilar nada.
+  dependency-graph:
+    name: Grafo de dependencias
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verificar el grafo de modulos
+        run: python tools/check_deps.py
+
+  # ── Plataforma objetivo ────────────────────────────────────────────────────
+  windows-msvc:
+    name: Windows / MSVC
+    runs-on: windows-2022
+    needs: dependency-graph
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configurar (debug)
+        run: cmake --preset debug
+
+      - name: Compilar (debug)
+        run: cmake --build --preset debug
+
+      - name: Pruebas (debug)
+        run: ctest --preset debug --output-on-failure
+
+      - name: Configurar y compilar con el desinfectante de direcciones
+        run: |
+          cmake --preset asan
+          cmake --build --preset asan
+
+      - name: Pruebas con el desinfectante de direcciones
+        run: ctest --preset asan --output-on-failure
+
+      - name: El ejecutable arranca y termina limpio
+        run: |
+          ./build/debug/bin/pitwall-cli.exe --version
+          ./build/debug/bin/pitwall-cli.exe --config config/default.toml --log-console
+
+  # ── Segunda opinion del compilador y ThreadSanitizer ───────────────────────
+  #
+  # ThreadSanitizer es un requisito duro (RNF-054, SEC-17) y su camino comodo es
+  # Linux con Clang. Este trabajo usa el runner nativo; si algun dia hiciera
+  # falta fijar la version del compilador, ADR-016 permite un contenedor AQUI,
+  # y solo aqui: Docker no ejecuta ni distribuye PitWall.
+  linux-clang:
+    name: Linux / Clang
+    runs-on: ubuntu-latest
+    needs: dependency-graph
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar herramientas
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Configurar y compilar (debug)
+        run: |
+          cmake --preset debug
+          cmake --build --preset debug
+
+      - name: Pruebas (debug)
+        run: ctest --preset debug --output-on-failure
+
+      - name: El nucleo arranca sin interfaz
+        run: ./build/debug/bin/pitwall-cli --config config/default.toml --log-console
+
+      - name: Compilar con el desinfectante de hilos
+        run: |
+          cmake --preset tsan
+          cmake --build --preset tsan
+
+      - name: Pruebas con el desinfectante de hilos
+        run: ctest --preset tsan --output-on-failure

@@ -1,0 +1,36 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PitWall — configuracion de desarrollo
+#
+#     pitwall-cli --config config/dev.toml
+#
+# Solo contiene las diferencias respecto a config/default.toml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+[net]
+bind = "127.0.0.1"
+port = 20777
+
+[recording]
+enabled = true
+directory = "./data/captures"
+
+[storage]
+catalogPath = "./data/catalog.db"
+seriesPath = "./data/series"
+
+[shell]
+# En desarrollo la interfaz se sirve desde Vite y se recarga en caliente dentro
+# de la propia ventana de PitWall (16-DEVELOPMENT-GUIDE 7.3).
+uiSource = "dev-server"
+devServerUrl = "http://localhost:5173"
+devTools = true
+
+[logging]
+level = "debug"
+directory = "./data/logs"
+console = true
+maxFileSizeMb = 8
+maxFiles = 5
+
+[logging.overrides]
+"pw::config" = "debug"

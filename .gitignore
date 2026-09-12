@@ -1,0 +1,61 @@
+# ── Especificación oficial de EA ────────────────────────────────────────────
+# Se provee "under license from EA for reference purposes only".
+# NO se redistribuye. Descargar del hilo oficial y colocar aquí localmente.
+spec/
+
+# ── Construcción ────────────────────────────────────────────────────────────
+build/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+vcpkg_installed/
+.cache/
+compile_commands.json
+
+# ── Datos en tiempo de ejecución ────────────────────────────────────────────
+data/
+*.f1raw
+*.f1raw.idx
+!tests/scenarios/*.f1raw
+catalog.db
+catalog.db-*
+logs/
+
+# ── Capturas grandes de rendimiento (fuera del repositorio) ─────────────────
+tests/perf-captures/
+
+# ── Frontend ────────────────────────────────────────────────────────────────
+node_modules/
+ui/dist/
+ui/.vite/
+*.tsbuildinfo
+
+# ── Herramientas ────────────────────────────────────────────────────────────
+tools/node_modules/
+tools/.render.html
+tools/.diag.html
+tools/*.png
+
+# ── Editores y sistema ──────────────────────────────────────────────────────
+.vs/
+.vscode/settings.json
+.idea/
+*.user
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ── Perfilado y cobertura ───────────────────────────────────────────────────
+*.pdb
+*.ilk
+coverage/
+*.gcda
+*.gcno
+*.profraw
+*.profdata
+
+# ── Fuzzing ─────────────────────────────────────────────────────────────────
+crash-*
+leak-*
+timeout-*
+fuzz-*.log

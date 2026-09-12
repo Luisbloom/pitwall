@@ -1,0 +1,105 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/build/${presetName}/install",
+      "cacheVariables": {
+        "PW_BUILD_TESTS": "ON",
+        "PW_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "clang-linux",
+      "hidden": true,
+      "inherits": "base",
+      "generator": "Ninja",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+
+    {
+      "name": "debug",
+      "displayName": "debug — desarrollo diario, con aserciones",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "release",
+      "displayName": "release — medicion de rendimiento y distribucion",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "asan",
+      "displayName": "asan — desinfectante de direcciones",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "PW_SANITIZER": "address"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "tsan — desinfectante de hilos (requiere Clang; Linux)",
+      "inherits": "clang-linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "PW_SANITIZER": "thread"
+      }
+    },
+    {
+      "name": "fuzz",
+      "displayName": "fuzz — objetivos de fuzzing (requiere Clang; Linux)",
+      "inherits": "clang-linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "PW_SANITIZER": "fuzzer",
+        "PW_BUILD_FUZZERS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "debug",   "configurePreset": "debug",   "configuration": "Debug" },
+    { "name": "release", "configurePreset": "release", "configuration": "Release" },
+    { "name": "asan",    "configurePreset": "asan",    "configuration": "RelWithDebInfo" },
+    { "name": "tsan",    "configurePreset": "tsan",    "configuration": "RelWithDebInfo" },
+    { "name": "fuzz",    "configurePreset": "fuzz",    "configuration": "RelWithDebInfo" }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "configurePreset": "debug",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "release",
+      "configurePreset": "release",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "asan",
+      "configurePreset": "asan",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    }
+  ]
+}

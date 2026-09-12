@@ -1,0 +1,95 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# PitWall — configuracion por defecto
+#
+# Este fichero documenta TODAS las opciones con su valor por defecto. Es la
+# referencia: si una clave no aparece aqui, no existe.
+#
+# Precedencia, de menor a mayor:
+#
+#     este fichero  ->  --config <otro.toml>  ->  variables PITWALL_*  ->  argumentos
+#
+# Cada clave tiene una variable de entorno equivalente, formada con el prefijo
+# PITWALL_, la seccion y la clave en mayusculas:
+#
+#     [net].port   ->   PITWALL_NET_PORT
+#
+# Lo que NO se configura, por decision de arquitectura:
+#   - El transporte interno hacia la interfaz: siempre 127.0.0.1 en puerto
+#     efimero con token de un solo uso (ADR-002 v2, SEC-13, SEC-14).
+#   - Cualquier forma de exponer la interfaz a la red: no existe (OUT-11).
+# ─────────────────────────────────────────────────────────────────────────────
+
+[net]
+# Direccion de escucha. 127.0.0.1 basta si el juego corre en este PC.
+# Use 0.0.0.0 para recibir desde una consola de la LAN (RNF-094).
+bind = "127.0.0.1"
+# Puerto UDP configurado en el juego: Game Options -> Settings -> UDP Telemetry.
+port = 20777
+# SO_RCVBUF solicitado. 4 MB absorben rafagas sin perdida (RNF-026).
+receiveBufferBytes = 4194304
+# Buffers preasignados. Minimo 4150 = 10 s a 415 datagramas/s (RNF-013).
+# El defecto es 8192: es la capacidad de las colas Qraw y Qrec, asi que con menos
+# el pool se agotaria antes de que ninguna cola llegase a llenarse.
+poolSize = 8192
+# Origenes aceptados. Vacio = cualquiera. Util si otra herramienta emite al
+# mismo puerto.
+originFilter = []
+
+[recording]
+# La captura cruda es lo que hace posible desarrollar y depurar sin el juego
+# (ADR-007, ADR-010). Se graba ANTES de decodificar.
+enabled = true
+autoStartOnSession = true
+directory = "%LOCALAPPDATA%/PitWall/data/captures"
+# Nivel zstd. 3 da >= 3x de ratio con coste de CPU despreciable (RF-402).
+compressionLevel = 3
+maxFileSizeBytes = 1073741824
+# Puntos de sincronizacion para poder buscar en el tiempo (RF-408).
+syncPointIntervalSeconds = 10
+
+[storage]
+catalogPath = "%LOCALAPPDATA%/PitWall/data/catalog.db"
+seriesPath = "%LOCALAPPDATA%/PitWall/data/series"
+retentionRawGb = 20
+retentionSeriesGb = 50
+retentionDays = 90
+
+[transport]
+# El transporte interno NO es configurable: siempre 127.0.0.1 en puerto efimero
+# con token de un solo uso (ADR-002 v2). Solo se configuran los ritmos.
+timingRateHz = 10
+telemetryRateHz = 20
+
+[shell]
+startMaximized = false
+rememberWindowState = true
+alwaysOnTop = false
+# Herramientas de desarrollo del WebView2. Solo en compilaciones de desarrollo.
+devTools = false
+# "embedded": la interfaz compilada que acompana al ejecutable.
+# "dev-server": el servidor de Vite, con recarga en caliente DENTRO de la
+# ventana de PitWall. Abrir esa URL en un navegador no funciona, y es correcto
+# que no funcione (16-DEVELOPMENT-GUIDE 7.3).
+uiSource = "embedded"
+devServerUrl = "http://localhost:5173"
+
+[logging]
+# trace, debug, info, warn, error u off. Se cambia en caliente (OBS-04).
+level = "info"
+directory = "%LOCALAPPDATA%/PitWall/data/logs"
+maxFileSizeMb = 32
+maxFiles = 10
+# Eco por consola ademas del fichero. Util en pitwall-cli.
+console = false
+
+# Niveles por componente. TRACE esta desactivado por defecto porque a 415
+# datagramas/s inunda cualquier fichero: se activa dirigido.
+[logging.overrides]
+# "pw::state" = "trace"
+# "pw::decoder" = "debug"
+
+[analysis]
+distanceStepMeters = 1.0
+brakingThreshold = 0.15
+minCleanLapsForDegradation = 5
+maxInterpolationGapMeters = 25.0
