@@ -35,11 +35,38 @@ enum class Mode : std::uint8_t { Live, Replay };
 /// Velocidad de reproduccion. 0 significa «tan rapido como se pueda» (RF-406).
 inline constexpr double kSpeedMax = 0.0;
 
+// ── Dimensionado del pool de buffers ────────────────────────────────────────
+//
+// El minimo NO lo fija la rafaga de 10 s (415 x 10 = 4.150), sino el modelo de
+// propiedad: Qraw y Qrec mantienen cada una su referencia sobre el buffer, y dos
+// colas que avanzan a ritmos distintos acaban refiriendose a conjuntos
+// DISJUNTOS. Por debajo de la suma, el pool se agota antes de que ninguna cola
+// se llene y las politicas de desbordamiento por cola no llegan a aplicarse:
+// un grabador atascado deja sin buffers al pipeline y se pierde todo.
+//
+//     8192 (Qraw) + 8192 (Qrec) + 2 (uno en la mano de cada consumidor)
+//                               + 1 (el que el productor esta rellenando)   = 16.387
+//
+// La deduccion vive en pw::mem::poolSizeForQueues y el numero en
+// pw::mem::kMinimumPoolSize. Aqui se repite porque pw::config NO puede depender
+// de pw::mem (grafo de modulos, RNF-084); una prueba verifica que los dos
+// valores coinciden, de modo que no puedan separarse en silencio.
+inline constexpr std::uint32_t kMinimumPoolSize = 16'387;
+
+/// Valor por defecto: el minimo redondeado al alza con margen, y multiplo de
+/// 1024. Son ~49 s de rafaga a 415 datagramas/s y 41 MiB de memoria reservada
+/// con buffers de 2048 B, muy por debajo del presupuesto de RNF-011.
+inline constexpr std::uint32_t kDefaultPoolSize = 20'480;
+
+static_assert(kDefaultPoolSize >= kMinimumPoolSize,
+              "El valor por defecto del pool debe cumplir su propio minimo: "
+              "es la discrepancia que se cerro en F1.1-01");
+
 struct NetConfig {
     std::string              bind{"127.0.0.1"};
     std::uint16_t            port{20777};
     std::uint32_t            receiveBufferBytes{4 * 1024 * 1024};
-    std::uint32_t            poolSize{8192};
+    std::uint32_t            poolSize{kDefaultPoolSize};
     std::vector<std::string> originFilter{};   ///< vacio = aceptar cualquier origen
 };
 

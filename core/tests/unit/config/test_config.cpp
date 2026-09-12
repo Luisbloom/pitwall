@@ -51,7 +51,7 @@ TEST_CASE("Los valores por defecto son los documentados", "[config][defaults]")
     REQUIRE(config.net.bind == "127.0.0.1");
     REQUIRE(config.net.port == 20777);
     REQUIRE(config.net.receiveBufferBytes == 4'194'304);
-    REQUIRE(config.net.poolSize == 8192);
+    REQUIRE(config.net.poolSize == 20480);
     REQUIRE(config.net.originFilter.empty());
     REQUIRE(config.recording.enabled);
     REQUIRE(config.recording.compressionLevel == 3);
@@ -87,7 +87,7 @@ level = "debug"
     REQUIRE(config.net.port == 20778);
     REQUIRE_FALSE(config.recording.enabled);
     REQUIRE(config.logging.level == "debug");
-    REQUIRE(config.net.poolSize == 8192);          // lo no dicho conserva su defecto
+    REQUIRE(config.net.poolSize == 20480);         // lo no dicho conserva su defecto
     REQUIRE(config.sourceFile == path);
 }
 
@@ -179,7 +179,7 @@ level = "error"
     REQUIRE(config.net.bind == "0.0.0.0");     // solo del fichero
     REQUIRE(config.net.port == 20999);         // entorno sobre fichero
     REQUIRE(config.logging.level == "debug");  // argumento sobre todo
-    REQUIRE(config.net.poolSize == 8192);      // defecto intacto
+    REQUIRE(config.net.poolSize == 20480);     // defecto intacto
 }
 
 TEST_CASE("Los argumentos documentados se aceptan", "[config][cli]")
@@ -201,9 +201,9 @@ TEST_CASE("Los argumentos documentados se aceptan", "[config][cli]")
     REQUIRE(noRecord.has_value());
     REQUIRE_FALSE(noRecord.value().recording.enabled);
 
-    const auto anyKey = pw::config::load({"--set", "net.poolSize=8192"}, env);
+    const auto anyKey = pw::config::load({"--set", "net.poolSize=32768"}, env);
     REQUIRE(anyKey.has_value());
-    REQUIRE(anyKey.value().net.poolSize == 8192);
+    REQUIRE(anyKey.value().net.poolSize == 32768);
 }
 
 TEST_CASE("--help y --version se distinguen de un error", "[config][cli]")
@@ -302,28 +302,34 @@ TEST_CASE("Un error de entorno identifica la variable culpable",
     REQUIRE(contains(loaded.error().describe(), "PITWALL_NET_PORT"));
 }
 
-TEST_CASE("El pool debe cubrir diez segundos de rafaga", "[config][validation][RNF-013]")
+TEST_CASE("Un pool por debajo del minimo se rechaza", "[config][validation][RNF-013]")
 {
-    // 415 datagramas/s x 10 s = 4150 (09-BACKEND-PLAN 8). El antiguo defecto
-    // documentado, 4096, se quedaba justo por debajo de su propia regla.
+    // El antiguo valor por defecto, 8192, es exactamente el caso que hay que
+    // rechazar: cabe una cola, no las dos.
     auto config         = pw::config::defaults();
-    config.net.poolSize = 4096;
+    config.net.poolSize = 8192;
 
     const auto valid = pw::config::validate(config);
     REQUIRE_FALSE(valid.has_value());
     REQUIRE(valid.error().key == "net.poolSize");
-    REQUIRE(contains(valid.error().describe(), "4150"));
+    REQUIRE(contains(valid.error().describe(), "16387"));
+
+    // Y el minimo por rafaga, que era el que se creia suficiente, tampoco basta.
+    config.net.poolSize = 415 * 10;
+    REQUIRE_FALSE(pw::config::validate(config).has_value());
 }
 
-TEST_CASE("El valor por defecto del pool cumple la regla del pool",
+TEST_CASE("El valor por defecto del pool cumple su propio minimo",
           "[config][validation][RNF-013]")
 {
-    // La prueba que cierra la discrepancia entre las secciones 6 y 8 de
-    // 09-BACKEND-PLAN: el defecto y la regla del mismo documento ya coinciden.
-    const auto config = pw::config::defaults();
+    // La prueba que impide que la discrepancia reaparezca. La comprobacion
+    // fuerte, contra la deduccion de pw::mem, esta en
+    // unit/config/test_pool_invariant.cpp.
+    STATIC_REQUIRE(pw::config::kDefaultPoolSize >= pw::config::kMinimumPoolSize);
 
-    REQUIRE(config.net.poolSize == 8192);
-    REQUIRE(config.net.poolSize >= 415 * 10);
+    const auto config = pw::config::defaults();
+    REQUIRE(config.net.poolSize == pw::config::kDefaultPoolSize);
+    REQUIRE(config.net.poolSize >= pw::config::kMinimumPoolSize);
     REQUIRE(pw::config::validate(config).has_value());
 }
 

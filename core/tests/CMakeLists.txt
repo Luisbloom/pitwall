@@ -36,15 +36,35 @@ pw_add_test_executable(pw_obs_tests
         unit/obs/test_logging.cpp
     LIBRARIES pw_obs)
 
+# pw_config_tests enlaza tambien pw_mem por una sola prueba: la que verifica que
+# el valor por defecto del pool cumple la regla que pw::mem deduce del modelo de
+# propiedad. Es dependencia de PRUEBA, no de modulo: pw::config no conoce a
+# pw::mem, y el verificador del grafo sigue exigiendo que no lo conozca.
 pw_add_test_executable(pw_config_tests
     SOURCES
         unit/config/test_config.cpp
-    LIBRARIES pw_config)
+        unit/config/test_pool_invariant.cpp
+    LIBRARIES pw_config pw_mem)
 
 # Las pruebas verifican que los tres ficheros TOML del repositorio cargan y
 # validan: son la referencia documental de la configuracion.
 target_compile_definitions(pw_config_tests PRIVATE
     PW_TEST_CONFIG_DIR="${CMAKE_SOURCE_DIR}/config")
+
+pw_add_test_executable(pw_mem_tests
+    SOURCES
+        unit/mem/test_buffer_pool.cpp
+        unit/mem/test_buffer_pool_lifecycle.cpp
+        unit/mem/test_spsc_ring.cpp
+        unit/mem/test_pool_sizing.cpp
+    LIBRARIES pw_mem)
+
+# La prueba de estres vive en su propio ejecutable: son 10 M de elementos entre
+# dos hilos (F1.1-03) y no debe alargar el ciclo de guardar y probar.
+pw_add_test_executable(pw_mem_stress_tests
+    SOURCES
+        unit/mem/test_spsc_ring_stress.cpp
+    LIBRARIES pw_mem)
 
 # ── Prueba de NO COMPILACION (F0-06, ADR-009) ────────────────────────────────
 #

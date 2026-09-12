@@ -27,10 +27,13 @@ bind = "127.0.0.1"
 port = 20777
 # SO_RCVBUF solicitado. 4 MB absorben rafagas sin perdida (RNF-026).
 receiveBufferBytes = 4194304
-# Buffers preasignados. Minimo 4150 = 10 s a 415 datagramas/s (RNF-013).
-# El defecto es 8192: es la capacidad de las colas Qraw y Qrec, asi que con menos
-# el pool se agotaria antes de que ninguna cola llegase a llenarse.
-poolSize = 8192
+# Buffers preasignados (RNF-013). El minimo NO lo fija la rafaga de 10 s
+# (415 x 10 = 4150) sino el modelo de propiedad: Qraw y Qrec mantienen cada una
+# su referencia sobre el mismo buffer, asi que el minimo es la SUMA de las dos
+# capacidades mas los buffers en vuelo: 8192 + 8192 + 2 + 1 = 16387.
+# Por debajo de eso, un grabador atascado deja sin buffers al pipeline.
+# 20480 es ese minimo con margen: ~49 s de rafaga y 41 MiB reservados.
+poolSize = 20480
 # Origenes aceptados. Vacio = cualquiera. Util si otra herramienta emite al
 # mismo puerto.
 originFilter = []

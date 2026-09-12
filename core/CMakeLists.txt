@@ -45,6 +45,15 @@ target_include_directories(pw_config SYSTEM PRIVATE
     $<TARGET_PROPERTY:tomlplusplus::tomlplusplus,INTERFACE_INCLUDE_DIRECTORIES>)
 pw_target_warnings(pw_config)
 
+# ── pw::mem — buffers y colas del camino caliente. Depende de core ──────────
+add_library(pw_mem STATIC
+    src/mem/buffer_pool.cpp
+)
+add_library(pw::mem ALIAS pw_mem)
+target_include_directories(pw_mem PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(pw_mem PUBLIC pw_core Threads::Threads)
+pw_target_warnings(pw_mem)
+
 add_subdirectory(apps)
 
 if(PW_BUILD_TESTS)

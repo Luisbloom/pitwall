@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Documento de Requisitos de Software"
 subtitle: "Plataforma de telemetría e ingeniería de carrera para EA SPORTS F1 25 y F1 25: 2026 Season Pack"
-version: "1.1"
+version: "1.2"
 status: "Aprobado para desarrollo"
-date: "2026-09-11"
+date: "2026-09-12"
 author: "Luis Miguel"
 docid: "PW-SRS-001"
 ---
@@ -34,6 +34,7 @@ docid: "PW-SRS-001"
 | Versión | Fecha | Autor | Cambios |
 |---|---|---|---|
 | 0.1 | 2026-09-11 | Luis Miguel | Borrador inicial tras la fase de investigación. |
+| 1.2 | 2026-09-12 | Luis Miguel | **RNF-052** reformulado: dejaba de ejemplo «descartar lo más antiguo» como política de la cola de telemetría, y esa política no es implementable en una cola de un productor y un consumidor cuyo índice de lectura pertenece al consumidor. El requisito pasa a exigir que cada cola declare una política **que su estructura pueda cumplir**, y remite el catálogo a `04-ARCHITECTURE.md` §4.3, donde `Qraw` queda como *descartar el más nuevo* (decidido al implementar F1.1-01). Los dos invariantes que no dependen de la cola —nunca bloquear al productor, contabilizar y avisar siempre— se conservan intactos. |
 | 1.1 | 2026-09-11 | Luis Miguel | **Cambio de enfoque de producto: PitWall pasa a ser una aplicación de escritorio para Windows.** La interfaz se aloja en un control WebView2 dentro del propio `PitWall.exe`; el navegador y el acceso desde la LAN dejan de ser formas de uso soportadas (OUT-10, OUT-11). Nuevos requisitos RF-620…RF-633 (shell), RF-011b (configuración asistida del XML con consentimiento y copia de seguridad), RNF-008, RNF-016, RNF-098, RNF-099, SEC-19…SEC-21 y CU-23. Retirado CU-19. Criterios de aceptación del MVP: de 27 a **35** (la versión 1.0 afirmaba 37, pero enumeraba 27: error aritmético corregido). Nuevo ADR-016 sobre Docker. |
 | 1.0 | 2026-09-11 | Luis Miguel | Versión completa. Incorpora la especificación oficial 2026 v1.2 verificada por descarga directa, el catálogo de casos de uso, requisitos funcionales y no funcionales, modelo conceptual, arquitectura conceptual y criterios de aceptación del MVP. Fija el stack (núcleo C++20/23 + frontend React/TypeScript). |
 
@@ -1227,7 +1228,7 @@ Fase: `F1` (MVP), `F2` (Alpha), `F3` (Beta/V1), `F4` (futuro).
 |---|---|
 | **RNF-050** | La recepción UDP ocurre en un hilo dedicado que **no realiza E/S de disco, ni de red de salida, ni toma bloqueos compartidos con consumidores lentos**. |
 | **RNF-051** | La comunicación entre etapas usa colas de un productor y un consumidor, sin bloqueos en el camino caliente. |
-| **RNF-052** | Cada cola declara su capacidad y su política de desbordamiento: *descartar lo más antiguo* para telemetría, *bloquear al productor* nunca, *contabilizar y avisar* siempre. |
+| **RNF-052** | Cada cola declara su capacidad y su política de desbordamiento, y la política es la que su estructura puede cumplir sin romper su propio modelo de concurrencia. El catálogo por cola vive en `04-ARCHITECTURE.md` §4.3. Invariantes que no dependen de la cola: *bloquear al productor* **nunca**, *contabilizar y avisar* **siempre**. |
 | **RNF-053** | El estado de sesión tiene un único propietario. Los demás módulos reciben instantáneas inmutables. |
 | **RNF-054** | Ningún dato compartido mutable sin sincronización explícita. Verificado con ThreadSanitizer en integración continua. |
 | **RNF-055** | El apagado es ordenado: se drenan las colas, se cierran las capturas y se libera el socket. |

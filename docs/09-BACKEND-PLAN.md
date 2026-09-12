@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de backend"
 subtitle: "Módulos C++20/23: shell de escritorio, decoders, estado, persistencia y transporte interno"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
 date: "2026-09-12"
 author: "Luis Miguel"
@@ -523,7 +523,7 @@ Linux. Es la prueba práctica de que el shell no contamina nada.
 bind = "127.0.0.1"
 port = 20777
 receiveBufferBytes = 4194304
-poolSize = 8192              # ≥ 415 × 10 (§8) y capacidad de Qraw/Qrec (04-ARCHITECTURE §4.3)
+poolSize = 20480             # ≥ 16.387: la SUMA de Qraw y Qrec más los buffers en vuelo (§8)
 originFilter = []            # vacío = aceptar cualquier origen
 
 [recording]
@@ -612,18 +612,39 @@ descubren sorpresas del WebView2 al final. Es el mismo razonamiento que con el g
 | Cero bloqueos en el camino caliente | Revisión de código + ThreadSanitizer |
 | Tablas de tamaños y enumerados `constexpr` | Inspección del ensamblador en los puntos calientes |
 | Alineación a línea de caché en las colas | `static_assert` de `alignof` |
-| Pool dimensionado para 10 s de ráfaga | `poolSize ≥ 415 × 10 = 4150`; el valor por defecto es **8192** |
+| Pool dimensionado por el modelo de propiedad | `poolSize ≥ Qraw + Qrec + consumidores + productor = 16.387`; el valor por defecto es **20.480** |
 | Sin copias del payload | `std::span` en toda la ruta de decodificación |
 
-> **Por qué el valor por defecto es 8192 y no 4150.** El mínimo lo fija la ráfaga de 10 s, pero el
-> valor se elige por la capacidad de las colas: `Qraw` y `Qrec` tienen **8192 huecos cada una**
-> (`04-ARCHITECTURE.md` §4.3). Con un pool menor, el pool se agotaría **antes** de que ninguna de las
-> dos llegase a llenarse, y las políticas de desbordamiento por cola —que son las contabilizadas y
-> las que hacen previsible la degradación— no llegarían a aplicarse nunca. La configuración validaría
-> el agotamiento del pool, que es el fallo menos informativo de los dos.
+> **Por qué el mínimo es 16.387 y no 4.150.** Hay dos restricciones distintas sobre el mismo número,
+> y manda la mayor:
 >
-> *Corregido en la fase F0: la versión 1.1 de este documento fijaba `poolSize = 4096` en §6, por
-> debajo del mínimo que exige esta misma sección.*
+> | Restricción | Mínimo | De dónde sale |
+> |---|---|---|
+> | Ráfaga de 10 s | 4.150 | 415 datagramas/s × 10 s |
+> | **Modelo de propiedad** | **16.387** | `Qraw` 8192 + `Qrec` 8192 + 2 consumidores + 1 productor |
+>
+> La segunda es la que decide. `Qraw` y `Qrec` mantienen **cada una su propia referencia** sobre el
+> mismo buffer (§4.4 de `04-ARCHITECTURE.md`), y dos colas que avanzan a ritmos distintos acaban
+> refiriéndose a conjuntos de buffers **disjuntos**: la lenta retiene los antiguos mientras la rápida
+> trabaja con los nuevos. En el peor caso, por tanto, los buffers vivos son la **suma** de las
+> capacidades, no la mayor de ellas.
+>
+> Por debajo de ese número el pool se agota **antes** de que ninguna cola se llene, y eso tiene una
+> consecuencia que va más allá de perder capacidad: **las políticas de desbordamiento por cola no
+> llegan a ejecutarse**, y el atasco de un consumidor se contagia al otro. Con un pool de 8192 y el
+> grabador parado, los 8192 buffers quedan retenidos por `Qrec` y el pipeline se queda sin ninguno:
+> se pierde también el directo. Está medido en `core/tests/unit/mem/test_pool_sizing.cpp`, que a
+> escala reducida entrega 32 de 500 datagramas con el pool infradimensionado y 500 de 500 con el pool
+> correcto.
+>
+> El valor por defecto es **20.480**: el mínimo con margen, múltiplo de 1024, unos 49 s de ráfaga y
+> 41 MiB de memoria reservada con buffers de 2048 B — muy por debajo del presupuesto de RNF-011.
+> La regla vive en `pw::mem::poolSizeForQueues` y una prueba verifica que el valor por defecto de
+> `pw::config` la cumple, para que la discrepancia no pueda reaparecer.
+>
+> *Historia de esta nota: la v1.1 fijaba `poolSize = 4096`, por debajo del mínimo que exigía esta
+> misma sección. La v1.2 lo corrigió a 8192 razonando sobre la capacidad de **una** cola, que también
+> se queda corto. La v1.3 lo corrige con la suma, comprobada al implementar `BufferPool` en F1.1-01.*
 
 ---
 
@@ -688,4 +709,4 @@ Consultadas el 11 de septiembre de 2026.
 
 ---
 
-*Fin de `PW-BE-009` v1.2*
+*Fin de `PW-BE-009` v1.3*

@@ -651,19 +651,15 @@ Result<void, ConfigError> validate(const Config& config)
         return invalid("net.receiveBufferBytes", std::to_string(config.net.receiveBufferBytes),
                        "al menos 65536; el valor recomendado es 4194304 (RNF-026)");
     }
-    // El pool debe cubrir una rafaga de 10 s a 415 datagramas/s (09-BACKEND-PLAN 8).
-    // El defecto es 8192, y no 4150, porque las colas Qraw y Qrec tienen 8192
-    // huecos cada una (04-ARCHITECTURE 4.3): con un pool menor se agotaria antes
-    // de que ninguna de las dos llegase a llenarse, y la politica de desbordamiento
-    // por cola -que es la contabilizada y documentada- nunca llegaria a aplicarse.
-    constexpr std::uint32_t kDatagramsPerSecond = 415;
-    constexpr std::uint32_t kBurstSeconds       = 10;
-    constexpr std::uint32_t kMinPoolSize        = kDatagramsPerSecond * kBurstSeconds;
-    if (config.net.poolSize < kMinPoolSize) {
+    // El minimo lo fija el MODELO DE PROPIEDAD, no la rafaga: ver la deduccion
+    // completa junto a kMinimumPoolSize en config.hpp. Por debajo de ese numero,
+    // un consumidor atascado agota el pool y se lleva por delante al otro.
+    if (config.net.poolSize < kMinimumPoolSize) {
         return invalid("net.poolSize", std::to_string(config.net.poolSize),
-                       "al menos " + std::to_string(kMinPoolSize) +
-                           ", que son 10 s de margen a 415 datagramas/s; el valor por "
-                           "defecto es 8192, la capacidad de las colas Qraw y Qrec");
+                       "al menos " + std::to_string(kMinimumPoolSize) +
+                           ", que es la suma de las capacidades de Qraw y Qrec mas "
+                           "los buffers en vuelo; el valor por defecto es " +
+                           std::to_string(kDefaultPoolSize));
     }
     if (config.recording.compressionLevel < 1 || config.recording.compressionLevel > 19) {
         return invalid("recording.compressionLevel", std::to_string(config.recording.compressionLevel),

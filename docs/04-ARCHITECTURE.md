@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Arquitectura"
 subtitle: "Aplicación de escritorio Windows: componentes, fronteras, concurrencia y flujo de eventos"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-12"
 author: "Luis Miguel"
 docid: "PW-ARC-004"
 ---
@@ -346,13 +346,41 @@ el usuario ni la interfaz tienen que pedirlo.
 
 | Cola | Tipo | Capacidad | Desbordamiento | Justificación |
 |---|---|---|---|---|
-| `Qraw` | SPSC lock-free | 8192 | **Descartar el más antiguo** + contador | ~20 s de margen a 415 datagramas/s. Si se llena, algo va muy mal aguas abajo |
+| `Qraw` | SPSC lock-free | 8192 | **Descartar el más nuevo** + contador | ~20 s de margen a 415 datagramas/s. Si se llena, algo va muy mal aguas abajo |
 | `Qrec` | SPSC lock-free | 8192 | **Descartar el más nuevo** + contador + aviso | Preferible una captura con un hueco marcado a perder el directo |
 | `Qpersist` | SPSC | 4096 | **Descartar muestras de alta frecuencia**; **nunca** eventos ni cierres de vuelta | La telemetría es densa y redundante; un evento es irrepetible |
 | `Qws` (por cliente) | SPSC | 256 | **Coalescer**: sustituir la muestra pendiente por la nueva | Mantiene la latencia acotada por diseño |
 | `Qanalytics` | SPSC | 1024 | Descartar el más antiguo | El análisis tolera perder muestras intermedias |
 
 **Ninguna cola bloquea al productor. Nunca.** Toda pérdida se contabiliza y se muestra en *UDP Diagnostics*. Una pérdida silenciosa sería peor que la propia pérdida.
+
+> **Por qué `Qraw` descarta el más nuevo y no el más antiguo** *(decidido en F1.1-01; la v1.1 de este
+> documento decía «el más antiguo»)*.
+>
+> En una cola de un productor y un consumidor, el índice de lectura es **propiedad exclusiva del
+> consumidor**, y esa exclusividad es justamente lo que permite prescindir de CAS en el camino
+> caliente. Descartar el más antiguo significa avanzar ese índice: si lo avanzara el productor,
+> tendría dos escritores y la cola dejaría de ser SPSC. Haría falta CAS sobre el índice de lectura
+> **y** una marca de secuencia por ranura para que el consumidor detectase que le han sobrescrito la
+> que estaba leyendo.
+>
+> Y hay una razón más fuerte que la complejidad: `Qraw` transporta `BufferHandle`, que son
+> **referencias contadas**. Sobrescribir una ranura obliga a soltar la referencia que había en ella,
+> y el productor no puede saber si el consumidor está leyendo justo ese buffer. La propiedad del
+> elemento sobrescrito quedaría sin dueño definido, que es un fallo peor que la pérdida que se
+> intentaba evitar.
+>
+> **Contrato del productor cuando `tryPush` falla:** deja intacto lo que ya hay en la cola, suelta la
+> referencia que había retenido para ella, incrementa el contador de descartes de esa cola y sigue
+> sin bloquearse.
+>
+> *Posibilidad futura, no requisito:* si las mediciones reales demostrasen que hace falta recuperar
+> frescura, el consumidor puede saltar adelante cuando detecte retraso. Eso conserva el modelo SPSC
+> porque el índice de lectura sigue teniendo un solo dueño. No se implementa hasta que una medición
+> lo justifique.
+>
+> El mismo razonamiento estructural aplica a `Qanalytics`, que también figura como SPSC con
+> «descartar el más antiguo». Se revisará al implementarla en F3; hoy no existe.
 
 ### 4.4. Gestión de memoria en el camino caliente
 
@@ -523,4 +551,4 @@ Consultadas el 11 de septiembre de 2026.
 
 ---
 
-*Fin de `PW-ARC-004` v1.1*
+*Fin de `PW-ARC-004` v1.2*
