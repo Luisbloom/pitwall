@@ -72,6 +72,25 @@ ALLOWED: dict[str, set[str]] = {
 # Modulos a los que se les permite incluir cabeceras de Windows (ADR-002 v2).
 WINDOWS_ALLOWED: set[str] = {"shell"}
 
+# Excepcion acotada para la capa de aislamiento de sockets (F1.1-04, RNF-091).
+#
+# La regla general dice «solo pw::shell incluye cabeceras de Windows», y sigue
+# valiendo para Win32 y WebView2. Pero RNF-091 exige que el nucleo compile en
+# Linux «sin API especificas de plataforma FUERA DE UNA CAPA DE AISLAMIENTO», y
+# F1.1-04 pide exactamente esa capa: «Winsock e implementacion POSIX tras una
+# interfaz comun». Alguien tiene que incluir winsock2.h, y ese alguien es la
+# capa de aislamiento.
+#
+# La excepcion es lo mas estrecha posible:
+#   - solo el modulo net;
+#   - solo ficheros con sufijo de plataforma (_win32), que ademas solo se
+#     compilan en Windows;
+#   - solo las cabeceras de sockets. windows.h sigue prohibida en todo el
+#     nucleo, tambien aqui.
+WINDOWS_HEADER_EXCEPTIONS: dict[str, tuple[re.Pattern[str], set[str]]] = {
+    "net": (re.compile(r"_win32\.(cpp|hpp)$"), {"winsock2.h", "ws2tcpip.h"}),
+}
+
 # Cabeceras que delatan dependencia de Windows.
 WINDOWS_HEADERS = re.compile(
     r"^(windows\.h|windowsx\.h|winsock2?\.h|ws2tcpip\.h|shellapi\.h|shlobj\.h|"
@@ -127,6 +146,15 @@ def included_module(include: str) -> str | None:
     return None
 
 
+def _windows_exception(module: str, path: Path, header: str) -> bool:
+    """Cierto si este fichero concreto puede incluir esta cabecera de Windows."""
+    entry = WINDOWS_HEADER_EXCEPTIONS.get(module)
+    if entry is None:
+        return False
+    pattern, allowed_headers = entry
+    return bool(pattern.search(path.name)) and header.lower() in allowed_headers
+
+
 def check_file(path: Path, root: Path) -> list[Violation]:
     module = module_of(path, root)
     if module is None:
@@ -159,7 +187,9 @@ def check_file(path: Path, root: Path) -> list[Violation]:
 
         # Regla 2: cabeceras de Windows.
         header = include.replace("\\", "/").lstrip("./")
-        if WINDOWS_HEADERS.match(header) and module not in WINDOWS_ALLOWED:
+        if WINDOWS_HEADERS.match(header) and module not in WINDOWS_ALLOWED and not _windows_exception(
+            module, path, header
+        ):
             violations.append(
                 Violation(
                     path,

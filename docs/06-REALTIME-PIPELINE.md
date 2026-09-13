@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-12"
 author: "Luis Miguel"
 docid: "PW-RTP-006"
 ---
@@ -42,9 +42,70 @@ El presupuesto tiene mucha holgura sobre la suma de las etapas. Es deliberado: e
 | Bind | Configurable: `127.0.0.1`, `0.0.0.0` o IP concreta | Consola y LAN (RF-003) |
 | Puerto | Configurable, 20777 por defecto | |
 | `SO_RCVBUF` | **4 MB** | Absorbe ráfagas de ~200 ms a 60 Hz (RNF-026) |
-| `SO_REUSEADDR` | Activado | Reinicio rápido tras cierre |
+| `SO_REUSEADDR` | **Desactivado en las dos plataformas** | PitWall quiere bind exclusivo y detectar «puerto ocupado»: ver §2.1.1 |
 | `SO_BROADCAST` | Activado si procede | Modo broadcast (RF-010) |
-| Modo | Bloqueante con espera acotada | Sencillo y suficiente para un socket |
+| Modo | Bloqueante, con espera acotada **de legibilidad** (`select`/`poll`) | Sencillo y suficiente para un socket. **No** con `SO_RCVTIMEO`: ver §2.1.2 |
+
+### 2.1.1. `SO_REUSEADDR` desactivado, y bind exclusivo
+
+*(decidido en F1.1-04; la v1.1 de este documento lo daba por activado, y la v1.2 sólo lo desactivaba
+en Windows)*
+
+**No se activa en ninguna de las dos plataformas.** El motivo es que PitWall quiere justo lo
+contrario de lo que esa opción concede:
+
+| Lo que PitWall quiere | Por qué `SO_REUSEADDR` estorba |
+|---|---|
+| Que el puerto sea suyo | Amplía los casos en que otro proceso puede compartirlo |
+| Detectar «puerto ocupado» con un error accionable | Un bind que triunfa cuando debería fallar no se detecta nunca (RNF-097, DoD de F1.1) |
+| Reiniciar rápido tras cerrar | **No hace falta**: UDP no tiene `TIME_WAIT`, que es el problema que esa opción resuelve en TCP |
+
+Y no hay ningún caso de uso que la pida: PitWall enlaza **un** socket, en un puerto fijo, **una vez**
+al arrancar, con instancia única (RF-625). Ni siquiera el modo broadcast del juego (RF-010) la
+necesita: ahí es el juego quien emite a la dirección de difusión, y PitWall sigue siendo un único
+proceso escuchando.
+
+En **Windows** se pide además exclusividad explícita con `SO_EXCLUSIVEADDRUSE`, y **es un requisito
+de arranque, no una mejora opcional**: si el sistema no la concede, el bind no se intenta siquiera y
+PitWall se detiene con un error accionable.
+
+El motivo de esa dureza es que sin exclusividad otro proceso puede enlazar el puerto de PitWall si
+**él** activa `SO_REUSEADDR`, y a partir de ahí cada uno recibiría una parte de los datagramas:
+pérdida silenciosa e imposible de diagnosticar desde dentro. Continuar sin la opción sería seguir
+prometiendo algo —que el puerto es nuestro y que «ocupado» se detecta— que ya no se puede cumplir.
+
+La secuencia de arranque queda: **crear el socket → solicitar exclusividad → comprobar que se
+concedió → enlazar**.
+
+> **Lo que este documento NO afirma.** Que el bind por defecto garantice exclusividad frente a
+> cualquier otro proceso en POSIX. No la garantiza en todos los casos —`SO_REUSEPORT` del otro lado,
+> por ejemplo—, y la implementación POSIX **todavía no se ha compilado ni ejecutado en ningún Linux**.
+
+### 2.1.2. La espera acotada va **antes** de recibir, no dentro
+
+*(medido y decidido en F1.1-04)*
+
+El bucle necesita despertar para comprobar su señal de parada. La forma que sale sola —poner
+`SO_RCVTIMEO` al socket— **pierde datagramas**. Medido en Windows, 20 datagramas espaciados 2 ms:
+
+| Espera | Recibidos |
+|---|---|
+| `SO_RCVTIMEO` de 10 ms | **16, 18, 18** de 20 |
+| `SO_RCVTIMEO` de 2000 ms | 20, 20, 20 |
+| `select()` de 10 ms + `recvfrom` | 20, 20, 20 |
+
+Microsoft lo documenta: cuando un `recv` con `SO_RCVTIMEO` vence, *«el estado del socket es
+indeterminado y no debería usarse»*. Un datagrama que llega mientras la espera vence desaparece sin
+error y sin contador.
+
+La forma correcta es preguntar primero si hay algo que leer, con tiempo máximo, y sólo entonces
+recibir: `select()` en Windows, `poll()` en POSIX —que además no tiene el límite de `FD_SETSIZE`—.
+Así `recvfrom` nunca vence.
+
+> **Por qué esto es fácil de no ver nunca.** A 415 datagramas/s la espera casi no vence, así que la
+> pérdida es mínima bajo carga. Aparece **en reposo y con tráfico espaciado**: al arrancar una sesión,
+> en una pausa del juego, entre sesiones. Y no la ve ningún contador propio, porque el dato se pierde
+> por debajo de la aplicación.
 
 > **Sobre `SO_RCVBUF`.** Es el ajuste más rentable de todo el sistema. El buffer por defecto de Windows (~64 KB) se llena en ~150 ms de emisión a 60 Hz si el proceso se queda sin planificar. Ampliarlo a 4 MB da ~10 s de margen. Cuesta una llamada al sistema y evita la mayoría de las pérdidas atribuibles al receptor.
 
@@ -57,9 +118,14 @@ void UdpReceiver::run(std::stop_token stop) {
 
     while (!stop.stop_requested()) {
         BufferHandle buf = pool_.acquire();          // preasignado, nunca asigna
-        if (!buf) { metrics_.poolExhausted++; continue; }
+        if (!buf) {                                  // no hay donde recibir
+            metrics_.poolExhaustions++;              // es un ESTADO, no una pérdida
+            noteEvent(PoolExhausted);                // marcar bandera; NO registrar
+            backOffBriefly();                        // no girar a plena CPU
+            continue;
+        }
 
-        const auto n = socket_.receive(buf.span(), origin);
+        const auto n = socket_.receive(buf.span(), origin);   // espera acotada: §2.1.2
         if (n <= 0) { pool_.release(buf); continue; }
 
         const auto t = monotonicNowNs();             // ANTES de cualquier otra cosa
@@ -69,6 +135,7 @@ void UdpReceiver::run(std::stop_token stop) {
 
         if (n < kHeaderSize) {                       // 29 bytes
             metrics_.invalid[Reason::Truncated]++;
+            noteEvent(Truncated);                    // marcar bandera; NO registrar
             pool_.release(buf);
             continue;
         }
@@ -82,10 +149,49 @@ void UdpReceiver::run(std::stop_token stop) {
 
 Propiedades del bucle:
 
-- **Cero asignaciones.** El pool se dimensiona al arrancar.
+- **Cero asignaciones.** El pool se dimensiona al arrancar. Verificado con **compilación
+  instrumentada** —un ejecutable que sustituye los operadores globales de reserva y cuenta las que
+  ocurren en el hilo del receptor—: **0 en 10.000 datagramas válidos y 0 en 2.000 truncados**, en
+  debug y en release.
+  Esa medición obligó a un cambio: el error que devuelve `receive()` es un tipo **trivial** sin
+  `std::string`. Reutilizar el tipo de error de arranque con el mensaje vacío bastaba en release,
+  pero en Debug MSVC reserva 16 B de *container proxy* al construir un `std::string` aunque esté
+  vacío. Un tipo que **no puede** asignar es más fiable que uno que promete no hacerlo.
 - **Marca de tiempo lo antes posible.** Cualquier trabajo previo contamina la medición y la fidelidad del replay.
-- **`tryPush` nunca bloquea.** Si una cola está llena, se descarta y se contabiliza.
+- **`tryPush` nunca bloquea.** Si una cola está llena, se descarta **el más nuevo** y se contabiliza
+  (§4.3 de `04-ARCHITECTURE.md`). Cada cola lleva su propia referencia contada: `retain` antes del
+  `tryPush`, `release` de **esa** referencia si el `tryPush` falla.
+- **El pool agotado no es una pérdida observada.** Significa que el receptor no tenía dónde recibir;
+  el datagrama puede seguir esperando en el buffer del sistema operativo y recibirse después. Se
+  contabiliza como estado (`udp_pool_exhaustion_total`), no como descarte. Si el agotamiento dura, el
+  buffer del sistema acabará llenándose y entonces sí habrá pérdida, pero la pierde el sistema y no
+  se puede atribuir a un datagrama concreto.
 - **La única validación aquí es la longitud mínima.** Todo lo demás es trabajo de T2. T1 debe volver al socket cuanto antes.
+
+### 2.2.1. T1 no escribe en el log
+
+*(decidido en F1.1-07, tras medirlo)*
+
+Formatear un mensaje reserva memoria. Si T1 registrara la **primera** vez que ve cada causa
+excepcional —un truncado, una cola llena, el pool agotado—, ese datagrama concreto habría provocado
+una asignación en el camino caliente. «Cero **por datagrama**» (RNF-013) incluye al primero.
+
+Así que T1 no registra nada. Lo que hace con lo excepcional es:
+
+1. incrementar su contador, y
+2. **marcar una bandera preasignada** —una escritura relajada sobre un `bool` atómico que ya existe—.
+
+El texto accionable lo emite después `reportPendingEvents()`, desde **fuera de T1**: el hilo de
+diagnóstico, el de apagado, o quien corresponda. Ese método sí puede asignar, porque no está en el
+camino caliente, y registra **cada suceso una sola vez** por vida del receptor, por muchas veces que
+T1 lo vuelva a marcar. El recuento exacto vive en los contadores, que es donde tiene sentido mirarlo.
+
+**Contrato de `reportPendingEvents()`:** no puede llamarse desde T1, y es de **un solo consumidor**
+—la marca de lo ya informado no está sincronizada, porque el diseño no necesita varios—. Es una
+precondición explícita, no una carencia.
+
+> Medido con la compilación instrumentada: **0 asignaciones en T1** con el contador armado *antes del
+> primer datagrama*, incluyendo la primera aparición de cada causa excepcional.
 
 ### 2.3. Prioridad del hilo
 
@@ -525,4 +631,4 @@ Consultadas el 11 de septiembre de 2026.
 
 ---
 
-*Fin de `PW-RTP-006` v1.1*
+*Fin de `PW-RTP-006` v1.2*

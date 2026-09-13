@@ -59,6 +59,21 @@ pw_add_test_executable(pw_mem_tests
         unit/mem/test_pool_sizing.cpp
     LIBRARIES pw_mem)
 
+pw_add_test_executable(pw_net_tests
+    SOURCES
+        unit/net/test_endpoint.cpp
+        unit/net/test_udp_socket.cpp
+        unit/net/test_udp_receiver.cpp
+    LIBRARIES pw_net)
+
+# COMPILACION INSTRUMENTADA (F1.1-07, RNF-013): este ejecutable sustituye los
+# operadores globales de reserva de memoria para contar asignaciones en el hilo
+# del receptor. Vive aparte precisamente porque esa sustitucion es global.
+pw_add_test_executable(pw_net_alloc_tests
+    SOURCES
+        unit/net/test_receiver_allocations.cpp
+    LIBRARIES pw_net)
+
 # La prueba de estres vive en su propio ejecutable: son 10 M de elementos entre
 # dos hilos (F1.1-03) y no debe alargar el ciclo de guardar y probar.
 pw_add_test_executable(pw_mem_stress_tests

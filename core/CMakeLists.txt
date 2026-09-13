@@ -54,6 +54,29 @@ target_include_directories(pw_mem PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(pw_mem PUBLIC pw_core Threads::Threads)
 pw_target_warnings(pw_mem)
 
+# ── pw::net — fuentes de datagramas. Es la capa de aislamiento de plataforma ─
+#
+# El unico objetivo del nucleo que enlaza una biblioteca del sistema operativo.
+# La implementacion se elige aqui, en un solo sitio: Winsock en Windows -la
+# plataforma real del producto- y POSIX en el resto, que es lo que mantiene el
+# nucleo compilando en Linux para la integracion continua (RNF-091).
+add_library(pw_net STATIC
+    src/net/endpoint.cpp
+    src/net/socket_error.cpp
+)
+add_library(pw::net ALIAS pw_net)
+target_include_directories(pw_net PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_link_libraries(pw_net PUBLIC pw_core pw_mem pw_obs)
+
+if(WIN32)
+    target_sources(pw_net PRIVATE src/net/udp_socket_win32.cpp)
+    target_link_libraries(pw_net PUBLIC ws2_32)
+else()
+    target_sources(pw_net PRIVATE src/net/udp_socket_posix.cpp)
+endif()
+
+pw_target_warnings(pw_net)
+
 add_subdirectory(apps)
 
 if(PW_BUILD_TESTS)
