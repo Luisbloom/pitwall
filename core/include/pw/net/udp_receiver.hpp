@@ -62,6 +62,7 @@
 #include "pw/net/datagram_size_counts.hpp"
 #include "pw/net/received_datagram.hpp"
 #include "pw/net/source_registry.hpp"
+#include "pw/net/thread_priority.hpp"
 #include "pw/net/udp_socket.hpp"
 #include "pw/obs/logging.hpp"
 #include "pw/obs/metrics.hpp"
@@ -95,6 +96,7 @@ enum class ReceiverEvent : std::uint8_t {
     SocketFailure,   ///< fallo del socket que no es espera vencida
     SocketClosed,    ///< el socket se cerro y el bucle termina
     SourceTableFull, ///< aparecio un origen nuevo y la tabla de origenes estaba llena
+    PriorityNotRaised, ///< el sistema rechazo subir la prioridad de T1 (F1.1-11)
     Count
 };
 
@@ -122,6 +124,10 @@ enum class ReceiverEvent : std::uint8_t {
         return "fallo al recibir del socket";
     case ReceiverEvent::SocketClosed:
         return "socket cerrado: el receptor termina";
+    case ReceiverEvent::PriorityNotRaised:
+        return "el sistema ha rechazado subir la prioridad del hilo de recepcion por encima de "
+               "la normal: el receptor sigue funcionando con la prioridad que tenia. Es una "
+               "degradacion de rendimiento potencial bajo carga, no un fallo funcional";
     case ReceiverEvent::SourceTableFull:
         return "tabla de origenes llena: los datagramas de origenes nuevos se siguen recibiendo y "
                "entregando, pero se cuentan juntos como origen no registrado. Los origenes ya "
@@ -215,9 +221,11 @@ public:
     UdpReceiverT(UdpReceiverConfig config, mem::BufferPool& pool, RawQueue& rawQueue,
                  RecQueue& recQueue, obs::MetricsRegistry& metrics, obs::Logger& logger,
                  std::unique_ptr<IUdpSocket> socket = makeUdpSocket(),
-                 const ReceiverClock clock = &monotonicNowNs)
+                 const ReceiverClock clock = &monotonicNowNs,
+                 const ThreadPriorityRaiser raisePriority = &raiseCurrentThreadAboveNormal)
         : config_{std::move(config)}
         , clock_{clock}
+        , raisePriority_{raisePriority}
         , silenceTimeoutNs_{static_cast<std::uint64_t>(config_.silenceTimeoutMs) * 1'000'000ULL}
         , pool_{pool}
         , rawQueue_{rawQueue}
@@ -309,6 +317,16 @@ public:
     /// socket se cierra.
     void run(std::stop_token stop)
     {
+        // 0. Prioridad del hilo (F1.1-11), UNA vez por llamada a run() y antes
+        //    del bucle: ya estamos en T1, asi que se actua sobre el hilo actual
+        //    sin handles de otro hilo. Por datagrama no se hace nada de esto.
+        //    Si el sistema lo rechaza, T1 sigue con la prioridad que tenia: se
+        //    marca el suceso y el aviso lo emite reportPendingEvents() fuera de
+        //    T1. Unsupported (POSIX) no es un fallo y no avisa.
+        const auto priority = raisePriority_();
+        threadPriority_.store(priority, std::memory_order_release);
+        if (priority == ThreadPriorityResult::Failed) { noteEvent(ReceiverEvent::PriorityNotRaised); }
+
         while (!stop.stop_requested()) {
             // 1. Un buffer del pool ANTES de recibir: se recibe directamente en
             //    memoria preasignada, sin copias ni asignaciones.
@@ -453,6 +471,14 @@ public:
                                 qrawDropped_.load(std::memory_order_relaxed),
                                 qrecDropped_.load(std::memory_order_relaxed),
                                 delivered_.load(std::memory_order_relaxed)};
+    }
+
+    /// Resultado del intento de subir la prioridad de T1 (F1.1-11): NotAttempted
+    /// antes de run(); despues, Raised, Failed o Unsupported (POSIX). Seguro
+    /// desde cualquier hilo. No es una metrica: es un hecho de arranque.
+    [[nodiscard]] ThreadPriorityResult threadPriority() const noexcept
+    {
+        return threadPriority_.load(std::memory_order_acquire);
     }
 
     /// Estado de la adquisicion (RF-012). Seguro desde cualquier hilo.
@@ -675,6 +701,7 @@ private:
 
     UdpReceiverConfig           config_;
     ReceiverClock               clock_;
+    ThreadPriorityRaiser        raisePriority_;
     std::uint64_t               silenceTimeoutNs_;
     mem::BufferPool&            pool_;
     RawQueue&                   rawQueue_;
@@ -714,6 +741,10 @@ private:
     /// Estado de la adquisicion. ESCRIBE solo T1; LEE cualquier hilo. Atomicos
     /// porque se leen desde fuera; sin mutex porque hay un unico escritor.
     std::atomic<UdpReceiverState> state_{UdpReceiverState::Listening};
+
+    /// Resultado del ultimo intento de subir la prioridad de T1. Lo escribe T1
+    /// al entrar en run(); lo lee cualquier hilo.
+    std::atomic<ThreadPriorityResult> threadPriority_{ThreadPriorityResult::NotAttempted};
     std::atomic<std::uint64_t>    lastActivityNs_{0};
     std::atomic<std::uint64_t>    toReceiving_{0};   ///< entradas en Receiving
     std::atomic<std::uint64_t>    toSilent_{0};      ///< entradas en Silent

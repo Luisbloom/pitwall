@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Estructura del proyecto"
 subtitle: "Árbol del repositorio con explicación de cada carpeta"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-STR-017"
 ---
@@ -191,9 +191,8 @@ El orden de las carpetas **no es alfabético**: sigue el flujo de dependencias, 
 | `app/` | Lo compone todo. El único con visión global |
 
 `tools/check_deps.py` verifica estas reglas en cada cambio (E2, RNF-084), incluida la más importante
-tras el cambio a aplicación de escritorio: **ningún módulo salvo `shell/` puede incluir cabeceras de
-Windows**. Es lo que mantiene el núcleo compilando en Linux y lo que hace que el shell sea
-sustituible si algún día hiciera falta otra cosa.
+tras el cambio a aplicación de escritorio: las APIs específicas de plataforma sólo aparecen en **adaptadores de plataforma explícitos y controlados**. `pw::shell` es el propietario general de la API Win32 de interfaz; fuera de él sólo hay excepciones estrechas para adaptadores de bajo nivel —los sockets y la prioridad de T1, ambos en `pw::net`—, declaradas fichero a fichero y cabecera a cabecera en `tools/check_deps.py`. Es lo que mantiene el núcleo
+compilando en Linux y lo que hace que el shell sea sustituible si algún día hiciera falta otra cosa.
 
 #### Por qué `proto/` tiene un subdirectorio por formato
 

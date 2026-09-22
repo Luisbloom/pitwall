@@ -71,10 +71,10 @@ target_include_directories(pw_net PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(pw_net PUBLIC pw_core pw_mem pw_obs)
 
 if(WIN32)
-    target_sources(pw_net PRIVATE src/net/udp_socket_win32.cpp)
+    target_sources(pw_net PRIVATE src/net/udp_socket_win32.cpp src/net/thread_priority_win32.cpp)
     target_link_libraries(pw_net PUBLIC ws2_32)
 else()
-    target_sources(pw_net PRIVATE src/net/udp_socket_posix.cpp)
+    target_sources(pw_net PRIVATE src/net/udp_socket_posix.cpp src/net/thread_priority_posix.cpp)
 endif()
 
 pw_target_warnings(pw_net)

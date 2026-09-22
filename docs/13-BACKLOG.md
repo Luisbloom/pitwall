@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Backlog"
 subtitle: "Epics, historias y tareas con prioridad, esfuerzo, dependencias y criterios de aceptación"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-BKL-013"
 ---
@@ -517,7 +517,7 @@ un navegador ni saber qué es un puerto.
 
 | Tarea | Detalle |
 |---|---|
-| `TASK-SHELL-001-01` | Módulo `pw::shell` aislado; único con cabeceras de Windows |
+| `TASK-SHELL-001-01` | Módulo `pw::shell` aislado; único con Win32 de interfaz (fuera de él, sólo adaptadores de plataforma declarados) |
 | `TASK-SHELL-001-02` | SDK de WebView2 por manifiesto, versión fijada y licencia verificada |
 | `TASK-SHELL-001-03` | Ventana Win32: clase, creación, bucle de mensajes, icono, tamaño mínimo 1280×720 |
 | `TASK-SHELL-001-04` | Consciencia de PPP por monitor v2 en el manifiesto de la aplicación |
@@ -530,7 +530,7 @@ un navegador ni saber qué es un puerto.
 - [ ] Doble clic abre una ventana propia; **no se abre ningún navegador**
 - [ ] La interfaz carga **sin ningún socket HTTP escuchando**
 - [ ] Sin WebView2 Runtime, se explica con un mensaje accionable
-- [ ] El shell es el único módulo con `#include <windows.h>`, verificado automáticamente
+- [ ] Fuera del shell, `#include <windows.h>` sólo aparece en adaptadores de plataforma declarados, verificado automáticamente
 
 ### STORY-SHELL-002 — Que funcione solo
 **P0 · 8 puntos · dep. STORY-SHELL-001**

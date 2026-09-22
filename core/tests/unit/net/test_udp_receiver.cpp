@@ -20,6 +20,7 @@
 #include "pw/net/udp_receiver.hpp"
 #include "pw/obs/logging.hpp"
 #include "pw/obs/metrics.hpp"
+#include "deterministic_priority.hpp"
 
 using namespace std::chrono_literals;
 
@@ -65,7 +66,7 @@ public:
         config.receiveBufferBytes     = 4 * 1024 * 1024;
 
         receiver_ = std::make_unique<TestReceiver>(config, pool_, *rawQueue_, *recQueue_,
-                                                   metrics_, logger_);
+                                                   metrics_, logger_, pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised);
 
         const auto opened = receiver_->open();
         REQUIRE(opened.has_value());
@@ -211,7 +212,8 @@ TEST_CASE("Una direccion de escucha invalida se rechaza antes de tocar el socket
     pw::net::UdpReceiverConfig config;
     config.bindAddress = "no-es-una-ip";
 
-    TestReceiver receiver{config, pool, *raw, *rec, metrics, logger};
+    TestReceiver receiver{config, pool, *raw, *rec, metrics, logger,
+                          pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto   opened = receiver.open();
 
     REQUIRE_FALSE(opened.has_value());
@@ -507,7 +509,8 @@ TEST_CASE("Una rafaga se recibe entera con la configuracion de produccion",
     config.port          = 0;
     config.pollTimeoutMs = 10;
 
-    pw::net::UdpReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger};
+    pw::net::UdpReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger,
+                                  pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto           opened = receiver.open();
     REQUIRE(opened.has_value());
 
@@ -592,7 +595,8 @@ TEST_CASE("T1 marca el suceso y reportPendingEvents lo registra fuera de T1",
     config.port          = 0;
     config.pollTimeoutMs = 10;
 
-    TestReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger};
+    TestReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger,
+                          pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto   opened = receiver.open();
     REQUIRE(opened.has_value());
 
@@ -649,7 +653,8 @@ TEST_CASE("Un suceso repetido mil veces se registra una sola vez",
     config.port          = 0;
     config.pollTimeoutMs = 10;
 
-    TestReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger};
+    TestReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger,
+                          pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto   opened = receiver.open();
     REQUIRE(opened.has_value());
 
@@ -710,7 +715,8 @@ TEST_CASE("Varios sucesos distintos se informan cada uno una vez",
     config.port          = 0;
     config.pollTimeoutMs = 10;
 
-    TestReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger};
+    TestReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger,
+                          pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto   opened = receiver.open();
     REQUIRE(opened.has_value());
 
