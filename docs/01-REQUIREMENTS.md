@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Documento de Requisitos de Software"
 subtitle: "Plataforma de telemetría e ingeniería de carrera para EA SPORTS F1 25 y F1 25: 2026 Season Pack"
-version: "1.4"
+version: "1.5"
 status: "Aprobado para desarrollo"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -1466,7 +1466,7 @@ El esquema propuesto inicialmente era correcto en su espina dorsal. Se mantiene,
 ```mermaid
 graph TB
     subgraph SRC["Fuentes (intercambiables)"]
-        UDP["UDP Socket Receiver<br/>hilo dedicado, tiempo real"]
+        UDP["UDP Socket Receiver<br/>hilo dedicado · prioridad superior a normal · no realtime"]
         RPL["Replay Source<br/>lee .f1raw"]
     end
 

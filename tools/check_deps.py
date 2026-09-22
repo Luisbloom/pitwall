@@ -8,9 +8,11 @@ reglas que se rompen las primeras cuando hay prisa:
      En particular: `pw::domain` no puede incluir nada de `pw::proto`, y
      `pw::state` no puede conocer el protocolo.
 
-  2. Solo `pw::shell` puede incluir cabeceras de Windows. Es lo que mantiene el
-     nucleo compilando en Linux (RNF-091) y lo que hace que el shell sea
-     sustituible (ADR-002 v2).
+  2. Las APIs de Windows solo aparecen en `pw::shell`, propietario general de
+     la API Win32 de interfaz, y en adaptadores de plataforma explicitos y
+     controlados (WINDOWS_HEADER_EXCEPTIONS). Es lo que mantiene el nucleo
+     compilando en Linux (RNF-091) y lo que hace que el shell sea sustituible
+     (ADR-002 v2).
 
 Uso:
 
@@ -72,23 +74,28 @@ ALLOWED: dict[str, set[str]] = {
 # Modulos a los que se les permite incluir cabeceras de Windows (ADR-002 v2).
 WINDOWS_ALLOWED: set[str] = {"shell"}
 
-# Excepcion acotada para la capa de aislamiento de sockets (F1.1-04, RNF-091).
+# Adaptadores de plataforma autorizados (RNF-091).
 #
-# La regla general dice «solo pw::shell incluye cabeceras de Windows», y sigue
-# valiendo para Win32 y WebView2. Pero RNF-091 exige que el nucleo compile en
-# Linux «sin API especificas de plataforma FUERA DE UNA CAPA DE AISLAMIENTO», y
-# F1.1-04 pide exactamente esa capa: «Winsock e implementacion POSIX tras una
-# interfaz comun». Alguien tiene que incluir winsock2.h, y ese alguien es la
-# capa de aislamiento.
+# La regla: las APIs especificas de plataforma solo aparecen en adaptadores de
+# plataforma explicitos y controlados. pw::shell es el propietario general de
+# la API Win32 de interfaz; fuera de el solo hay excepciones estrechas para
+# adaptadores de bajo nivel. RNF-091 pide que el nucleo compile en Linux «sin
+# API especificas de plataforma FUERA DE UNA CAPA DE AISLAMIENTO»: estas
+# entradas son esa capa, y cada una dice que fichero y que cabeceras.
 #
-# La excepcion es lo mas estrecha posible:
-#   - solo el modulo net;
-#   - solo ficheros con sufijo de plataforma (_win32), que ademas solo se
-#     compilan en Windows;
-#   - solo las cabeceras de sockets. windows.h sigue prohibida en todo el
-#     nucleo, tambien aqui.
-WINDOWS_HEADER_EXCEPTIONS: dict[str, tuple[re.Pattern[str], set[str]]] = {
-    "net": (re.compile(r"_win32\.(cpp|hpp)$"), {"winsock2.h", "ws2tcpip.h"}),
+#   net · sockets (F1.1-04)
+#       Winsock tras la interfaz comun IUdpSocket. Solo ficheros _win32 de net,
+#       solo las cabeceras de sockets.
+#
+#   net · prioridad de T1 (F1.1-11)
+#       SetThreadPriority para el hilo de recepcion. Solo el fichero
+#       thread_priority_win32.cpp. windows.h entra porque processthreadsapi.h
+#       no compila sola; sigue prohibida en el resto de pw::net.
+WINDOWS_HEADER_EXCEPTIONS: dict[str, list[tuple[re.Pattern[str], set[str]]]] = {
+    "net": [
+        (re.compile(r"_win32\.(cpp|hpp)$"), {"winsock2.h", "ws2tcpip.h"}),
+        (re.compile(r"^thread_priority_win32\.cpp$"), {"windows.h", "processthreadsapi.h"}),
+    ],
 }
 
 # Cabeceras que delatan dependencia de Windows.
@@ -148,11 +155,10 @@ def included_module(include: str) -> str | None:
 
 def _windows_exception(module: str, path: Path, header: str) -> bool:
     """Cierto si este fichero concreto puede incluir esta cabecera de Windows."""
-    entry = WINDOWS_HEADER_EXCEPTIONS.get(module)
-    if entry is None:
-        return False
-    pattern, allowed_headers = entry
-    return bool(pattern.search(path.name)) and header.lower() in allowed_headers
+    for pattern, allowed_headers in WINDOWS_HEADER_EXCEPTIONS.get(module, []):
+        if pattern.search(path.name) and header.lower() in allowed_headers:
+            return True
+    return False
 
 
 def check_file(path: Path, root: Path) -> list[Violation]:
@@ -195,8 +201,9 @@ def check_file(path: Path, root: Path) -> list[Violation]:
                     path,
                     number,
                     f"el modulo '{module}' incluye la cabecera de Windows '{include}'. "
-                    f"Solo pw::shell puede hacerlo: el nucleo debe seguir compilando "
-                    f"en Linux (RNF-091, ADR-002 v2).",
+                    f"Solo pw::shell y los adaptadores de plataforma declarados en "
+                    f"WINDOWS_HEADER_EXCEPTIONS pueden hacerlo: el nucleo debe seguir "
+                    f"compilando en Linux (RNF-091, ADR-002 v2).",
                 )
             )
 

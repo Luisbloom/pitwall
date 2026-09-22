@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de backend"
 subtitle: "Módulos C++20/23: shell de escritorio, decoders, estado, persistencia y transporte interno"
-version: "1.4"
+version: "1.5"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -88,7 +88,7 @@ graph TB
 él, y él depende de `pw::app`. Quitarlo deja un núcleo que compila y se ejecuta sin interfaz —que es
 exactamente lo que necesita la integración continua en Linux y lo que usan las pruebas de integración.
 
-**Verificación automática:** una prueba de integración continua comprueba que `pw::domain` no incluye ninguna cabecera de `pw::proto`, `pw::decoder` ni `pw::net`, y que **ningún módulo salvo `pw::shell` incluye cabeceras de Windows**. Es la propiedad que se rompe primero cuando hay prisa, así que se vigila con una herramienta y no con la memoria.
+**Verificación automática:** una prueba de integración continua comprueba que `pw::domain` no incluye ninguna cabecera de `pw::proto`, `pw::decoder` ni `pw::net`, y que las APIs específicas de plataforma sólo aparecen en **adaptadores de plataforma explícitos y controlados**. `pw::shell` es el propietario general de la API Win32 de interfaz; fuera de él sólo hay excepciones estrechas para adaptadores de bajo nivel —los sockets y la prioridad de T1, ambos en `pw::net`—, declaradas fichero a fichero y cabecera a cabecera en `tools/check_deps.py`. Es la propiedad que se rompe primero cuando hay prisa, así que se vigila con una herramienta y no con la memoria.
 
 ---
 
@@ -383,8 +383,11 @@ private:
 
 Responsabilidades y el requisito que las justifica, en `04-ARCHITECTURE.md` §3.10.
 
-**Regla de contención.** Todo lo que sea Win32 o WebView2 vive aquí y **sólo** aquí. Si aparece un
-`#include <windows.h>` en cualquier otro módulo, la verificación del grafo falla. Es lo que mantiene
+**Regla de contención.** Todo lo que sea Win32 de interfaz o WebView2 vive aquí y **sólo** aquí.
+Fuera del shell, una cabecera de Windows sólo puede aparecer en un adaptador de plataforma declarado
+en `tools/check_deps.py` —hoy, los sockets (`*_win32` de `pw::net`, sólo Winsock) y la prioridad de T1
+(`thread_priority_win32.cpp`, sólo `windows.h` y `processthreadsapi.h`)—, cada uno con su equivalente
+POSIX. Cualquier otro `#include <windows.h>` hace fallar la verificación del grafo. Es lo que mantiene
 al núcleo compilando en Linux (RNF-091) y lo que hace que el shell sea sustituible el día que haga
 falta otra cosa.
 

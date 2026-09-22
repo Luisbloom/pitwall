@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de implementación"
 subtitle: "Fases, tareas, dependencias y Definition of Done"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -425,7 +425,7 @@ interfaz. Es la fase que convierte un motor de telemetría en un producto.
 
 | # | Tarea | Detalle | Requisitos |
 |---|---|---|---|
-| F1.6b-01 | Proyecto `pw::shell` aislado | Único módulo que incluye cabeceras de Windows; verificado por `check_deps` | RNF-084 |
+| F1.6b-01 | Proyecto `pw::shell` aislado | Único módulo con Win32 de interfaz; fuera de él, sólo los adaptadores de plataforma declarados; verificado por `check_deps` | RNF-084 |
 | F1.6b-02 | SDK de WebView2 por manifiesto | Versión fijada, licencia verificada | RNF-092 |
 | F1.6b-03 | Ventana Win32 | Registro de clase, creación, bucle de mensajes, icono, tamaño mínimo 1280×720 | RF-620 |
 | F1.6b-04 | Consciencia de PPP por monitor v2 | Declarada en el manifiesto de la aplicación | RF-627 |
@@ -454,7 +454,7 @@ interfaz. Es la fase que convierte un motor de telemetría en un producto.
 - [ ] `pitwall-cli` ejecuta el mismo núcleo sin interfaz y compila en Linux
 - [ ] **Q-10 respondida con una medición**, no con una suposición
 - [ ] **Q-11 respondida con una prueba de concepto que funciona**
-- [ ] El shell es el único módulo con `#include <windows.h>`, verificado automáticamente
+- [ ] Fuera del shell, `#include <windows.h>` sólo aparece en adaptadores de plataforma declarados, verificado automáticamente
 
 > **Hito de producto.** Al cerrar F1.6b, PitWall deja de ser un proceso y pasa a ser una aplicación.
 > Es el momento natural para enseñárselo a alguien.

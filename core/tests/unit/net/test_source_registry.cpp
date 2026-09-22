@@ -26,6 +26,7 @@
 #include "pw/net/udp_receiver.hpp"
 #include "pw/obs/logging.hpp"
 #include "pw/obs/metrics.hpp"
+#include "deterministic_priority.hpp"
 #include "scripted_socket.hpp"
 
 using namespace std::chrono_literals;
@@ -432,7 +433,8 @@ struct ScriptRun {
         auto scripted = std::make_unique<ScriptedSocket>(script);
         socket        = scripted.get();
         receiver      = std::make_unique<ScriptReceiver>(pw::net::UdpReceiverConfig{}, pool, *raw,
-                                                    *rec, metrics, logger, std::move(scripted));
+                                                    *rec, metrics, logger, std::move(scripted),
+                                                    &pw::monotonicNowNs, &pw::test::fakePriorityRaised);
         REQUIRE(receiver->open().has_value());
 
         std::stop_source stopper;

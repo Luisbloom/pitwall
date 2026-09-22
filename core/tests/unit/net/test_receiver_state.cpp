@@ -24,6 +24,7 @@
 #include "pw/net/udp_receiver.hpp"
 #include "pw/obs/logging.hpp"
 #include "pw/obs/metrics.hpp"
+#include "deterministic_priority.hpp"
 #include "scripted_socket.hpp"
 
 using namespace std::chrono_literals;
@@ -115,7 +116,8 @@ public:
         socket_       = scripted.get();
         socket_->allowUpTo(0);
         receiver_ = std::make_unique<Receiver>(config, pool_, *raw_, *rec_, metrics_, logger_,
-                                               std::move(scripted), &manualClock);
+                                               std::move(scripted), &manualClock,
+                                               &pw::test::fakePriorityRaised);
         REQUIRE(receiver_->open().has_value());
         worker_ = std::thread{[this] { receiver_->run(stopper_.get_token()); }};
     }
@@ -406,7 +408,8 @@ TEST_CASE("El cierre del socket termina el bucle y no se confunde con silencio",
 
     const std::vector<ScriptedDatagram> script{datagram(), scriptedError(SocketErrorKind::Closed)};
     Receiver receiver{pw::net::UdpReceiverConfig{}, pool, *raw, *rec, metrics, logger,
-                      std::make_unique<ScriptedSocket>(script), &steppingClock};
+                      std::make_unique<ScriptedSocket>(script), &steppingClock,
+                      &pw::test::fakePriorityRaised};
     REQUIRE(receiver.open().has_value());
 
     std::stop_source never;
@@ -563,7 +566,8 @@ TEST_CASE("Un silencio configurado distinto se respeta", "[net][receiver][state]
     auto  scripted = std::make_unique<ScriptedSocket>(script);
     auto* socket   = scripted.get();
     setClockMs(1'000);
-    Receiver receiver{config, pool, *raw, *rec, metrics, logger, std::move(scripted), &manualClock};
+    Receiver receiver{config,        pool,         *raw, *rec, metrics, logger, std::move(scripted),
+                      &manualClock, &pw::test::fakePriorityRaised};
     REQUIRE(receiver.open().has_value());
 
     std::stop_source stopper;

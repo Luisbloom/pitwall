@@ -59,6 +59,7 @@
 #include "pw/net/udp_receiver.hpp"
 #include "pw/obs/logging.hpp"
 #include "pw/obs/metrics.hpp"
+#include "deterministic_priority.hpp"
 #include "scripted_socket.hpp"
 
 using namespace std::chrono_literals;
@@ -284,7 +285,8 @@ Measurement measure(const std::size_t payloadBytes, const int measuredDatagrams)
     config.port          = 0;
     config.pollTimeoutMs = 5;
 
-    pw::net::UdpReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger};
+    pw::net::UdpReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger,
+                                  pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto           opened = receiver.open();
     REQUIRE(opened.has_value());
 
@@ -426,7 +428,8 @@ TEST_CASE("Cero asignaciones desde el PRIMER datagrama, con las colas llenandose
     config.pollTimeoutMs          = 5;
     config.poolExhaustedBackoffUs = 200;
 
-    TinyReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger};
+    TinyReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger,
+                          pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto   opened = receiver.open();
     REQUIRE(opened.has_value());
 
@@ -507,7 +510,8 @@ TEST_CASE("Cero asignaciones en el primer agotamiento del pool",
     config.pollTimeoutMs          = 5;
     config.poolExhaustedBackoffUs = 200;
 
-    TinyReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger};
+    TinyReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger,
+                          pw::net::makeUdpSocket(), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     const auto   opened = receiver.open();
     REQUIRE(opened.has_value());
 
@@ -573,7 +577,8 @@ TEST_CASE("Cero asignaciones en el primer error de socket",
     auto        failing = std::make_unique<FailingSocket>(pw::net::SocketErrorKind::Unknown);
     auto* const socket  = failing.get();
 
-    TinyReceiver receiver{config, pool, *rawQueue, *recQueue, metrics, logger, std::move(failing)};
+    TinyReceiver receiver{config,  pool,   *rawQueue, *recQueue, metrics, logger, std::move(failing),
+                          &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     REQUIRE(receiver.open().has_value());
 
     alloc_probe::reset();
@@ -620,7 +625,7 @@ TEST_CASE("Cero asignaciones al cerrarse el socket bajo el bucle",
 
     TinyReceiver receiver{pw::net::UdpReceiverConfig{}, pool,   *rawQueue,
                           *recQueue,                   metrics, logger,
-                          std::move(failing)};
+                          std::move(failing), &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
     REQUIRE(receiver.open().has_value());
 
     alloc_probe::reset();
@@ -690,7 +695,8 @@ TEST_CASE("COLD PATH: cero asignaciones al registrar origenes, uno a uno y con l
     auto* const socket   = scripted.get();
 
     pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
-                                  metrics, logger, std::move(scripted)};
+                                  metrics, logger, std::move(scripted), &pw::monotonicNowNs,
+                                  &pw::test::fakePriorityRaised};
     REQUIRE(receiver.open().has_value());
 
     alloc_probe::reset();
@@ -766,7 +772,8 @@ TEST_CASE("STEADY STATE: cero asignaciones con origenes intercalados y la tabla 
     auto* const socket   = scripted.get();
 
     pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
-                                  metrics, logger, std::move(scripted)};
+                                  metrics, logger, std::move(scripted), &pw::monotonicNowNs,
+                                  &pw::test::fakePriorityRaised};
     REQUIRE(receiver.open().has_value());
 
     const auto drain = [&] {
@@ -858,7 +865,8 @@ TEST_CASE("COLD PATH: cero asignaciones en cada transicion de estado",
 
     manualNowNs.store(1'000 * kMs, std::memory_order_release);
     pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
-                                  metrics, logger, std::move(scripted), &manualClock};
+                                  metrics, logger, std::move(scripted), &manualClock,
+                                  &pw::test::fakePriorityRaised};
     REQUIRE(receiver.open().has_value());
 
     const auto drain = [&] {

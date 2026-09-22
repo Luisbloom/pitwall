@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Arquitectura"
 subtitle: "Aplicación de escritorio Windows: componentes, fronteras, concurrencia y flujo de eventos"
-version: "1.3"
+version: "1.4"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -295,7 +295,8 @@ El componente que convierte un motor de telemetría en un producto.
 
 `shell` es el **único módulo específico de Windows** del proyecto. El núcleo sigue compilando en
 Linux sin él (RNF-091), lo que además permite ejecutar en integración continua todo lo que no es
-interfaz.
+interfaz. Otros módulos pueden tener **adaptadores de plataforma** acotados —`pw::net` los tiene para
+Winsock y para la prioridad de T1—, siempre con su equivalente POSIX detrás de la misma interfaz.
 
 ### 3.11. `observability`
 
@@ -312,7 +313,7 @@ graph LR
     subgraph T0["T0 · UI — hilo principal, STA"]
         W["ventana Win32 + WebView2"]
     end
-    subgraph T1["T1 · Receiver — prioridad alta"]
+    subgraph T1["T1 · Receiver — prioridad superior a normal, no realtime"]
         R["recv → validar → estampar"]
     end
     subgraph T3["T3 · Recorder"]

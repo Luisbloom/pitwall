@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.4"
+version: "1.5"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -327,7 +327,23 @@ subsistema.
 
 ### 2.3. Prioridad del hilo
 
+*(implementado en F1.1-11)*
+
 Se eleva por encima de la normal, **no a tiempo real**. Elevar a tiempo real un hilo que compite con el motor gráfico del juego provocaría tirones en el juego —el problema que precisamente queremos evitar— por un beneficio marginal.
+
+| Aspecto | Decisión |
+|---|---|
+| Windows | `SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL)`: +1 sobre la base de la clase del proceso (prioridad 9 en la clase normal; el tiempo real empieza en 16). Sin privilegios especiales |
+| Qué **no** se usa | `THREAD_PRIORITY_HIGHEST`, `THREAD_PRIORITY_TIME_CRITICAL`, `REALTIME_PRIORITY_CLASS`, `SetPriorityClass`, afinidad, MMCSS, `SetThreadPriorityBoost` |
+| Alcance | **Sólo T1**: se llama desde dentro de `UdpReceiver::run()` con el pseudo-handle del hilo actual. La clase de prioridad del proceso no cambia |
+| POSIX | **No-op deliberado**: devuelve `Unsupported`. Sin privilegios no hay equivalente —`SCHED_OTHER` no tiene niveles, un *nice* negativo exige `CAP_SYS_NICE`— y `SCHED_FIFO`/`SCHED_RR` son tiempo real. POSIX es plataforma de compilación en esta fase, no de ejecución validada |
+| Cuándo | Una vez por llamada a `run()`, **antes** del bucle. Nada por datagrama |
+| Si el sistema lo rechaza | **Degradación, no fallo**: T1 sigue con la prioridad que tenía, sin reintentos. Resultado `Failed`, y el suceso `PriorityNotRaised` que `reportPendingEvents()` registra como aviso **fuera de T1** (§2.2.1) |
+| Observabilidad | `threadPriority()`: `NotAttempted`, `Raised`, `Failed` o `Unsupported`. Sin métrica nueva: es un hecho de arranque, no una magnitud. `Unsupported` no avisa |
+
+La llamada vive en un adaptador de plataforma (`thread_priority_win32.cpp` /
+`thread_priority_posix.cpp`), el único fichero de `pw::net` autorizado a incluir `windows.h` y
+`processthreadsapi.h` (`tools/check_deps.py`).
 
 ---
 
