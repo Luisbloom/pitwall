@@ -62,12 +62,31 @@ static_assert(kDefaultPoolSize >= kMinimumPoolSize,
               "El valor por defecto del pool debe cumplir su propio minimo: "
               "es la discrepancia que se cerro en F1.1-01");
 
+/// Silencio tras el cual la fuente UDP se considera inactiva (RF-012, F1.1-10).
+///
+/// Mide el tiempo desde el ultimo datagrama de CUALQUIER tipo, no desde el
+/// ultimo de un tipo concreto. El rango sale de dos cotas:
+///
+///   minimo 100 ms    la granularidad del ciclo de espera (select/poll) con el
+///                    que se comprueba el silencio. Un valor menor no daria una
+///                    resolucion efectiva mejor mientras la comprobacion vaya en
+///                    ese ciclo.
+///   maximo 2000 ms   el valor de diseno aprobado. RF-012 exige que la interfaz
+///                    refleje el cambio en <= 3 s: 2000 + ~100 ms de ciclo +
+///                    ~500 ms de refresco de la interfaz = ~2600 ms, y queda
+///                    margen para planificacion, propagacion y fluctuacion. Un
+///                    maximo de 2400 consumiria esos 3 s enteros sin margen.
+inline constexpr std::uint32_t kDefaultSilenceTimeoutMs = 2000;
+inline constexpr std::uint32_t kMinSilenceTimeoutMs     = 100;
+inline constexpr std::uint32_t kMaxSilenceTimeoutMs     = 2000;
+
 struct NetConfig {
     std::string              bind{"127.0.0.1"};
     std::uint16_t            port{20777};
     std::uint32_t            receiveBufferBytes{4 * 1024 * 1024};
     std::uint32_t            poolSize{kDefaultPoolSize};
     std::vector<std::string> originFilter{};   ///< vacio = aceptar cualquier origen
+    std::uint32_t            silenceTimeoutMs{kDefaultSilenceTimeoutMs};
 };
 
 struct RecordingConfig {

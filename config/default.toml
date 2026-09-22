@@ -37,6 +37,12 @@ poolSize = 20480
 # Origenes aceptados. Vacio = cualquiera. Util si otra herramienta emite al
 # mismo puerto.
 originFilter = []
+# Milisegundos sin observar ningun datagrama tras los que PitWall considera la
+# fuente inactiva y la interfaz muestra «Desconectado» (RF-012). UDP no tiene
+# conexion: esto solo mide cuanto hace que no llega NINGUN datagrama. Entre 100
+# y 2000: por debajo, el ciclo de espera de ~100 ms no da mas resolucion; por
+# encima, no queda margen para que la interfaz lo refleje en los 3 s de RF-012.
+silenceTimeoutMs = 2000
 
 [recording]
 # La captura cruda es lo que hace posible desarrollar y depurar sin el juego

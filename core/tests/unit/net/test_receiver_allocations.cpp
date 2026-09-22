@@ -818,6 +818,148 @@ TEST_CASE("STEADY STATE: cero asignaciones con origenes intercalados y la tabla 
     REQUIRE(pool.inUse() == 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Estado de la adquisicion (F1.1-10): cero asignaciones en cada transicion
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+std::atomic<std::uint64_t> manualNowNs{0};
+
+std::uint64_t manualClock() noexcept { return manualNowNs.load(std::memory_order_acquire); }
+
+} // namespace
+
+TEST_CASE("COLD PATH: cero asignaciones en cada transicion de estado",
+          "[net][receiver][allocations][coldpath][state][RNF-013][RF-012][F1.1-10]")
+{
+    // Contador armado antes del primer datagrama. Cada fase se entrega por
+    // separado y se mide la diferencia: asi cada transicion tiene su cifra.
+    constexpr std::uint64_t kMs = 1'000'000ULL;
+    const Ipv4Endpoint      game{{192, 168, 1, 50}, 20777};
+
+    std::vector<ScriptedDatagram> script;
+    script.push_back({game, 1349});                          // Listening -> Receiving
+    for (int i = 0; i < 50; ++i) { script.push_back({game, 1349}); }   // en Receiving
+    script.push_back({game, 1349});                          // Silent -> Receiving
+    script.push_back({game, 4000});                          // oversized en Receiving
+    script.push_back({game, 4000});                          // oversized: Silent -> Receiving
+
+    pw::mem::BufferPool pool{128, 2048};
+    auto                rawQueue = std::make_unique<RawQueue>();
+    auto                recQueue = std::make_unique<RecQueue>();
+
+    pw::obs::MetricsRegistry metrics;
+    pw::obs::Logger          logger{pw::obs::LoggerConfig{}};
+
+    auto        scripted = std::make_unique<ScriptedSocket>(script);
+    auto* const socket   = scripted.get();
+    socket->allowUpTo(0);
+
+    manualNowNs.store(1'000 * kMs, std::memory_order_release);
+    pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
+                                  metrics, logger, std::move(scripted), &manualClock};
+    REQUIRE(receiver.open().has_value());
+
+    const auto drain = [&] {
+        ReceivedDatagram datagram;
+        while (rawQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+        while (recQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+    };
+    const auto settle = [&] {
+        const auto from = socket->idlePolls();
+        REQUIRE(waitUntil([&] {
+            drain();
+            return socket->idlePolls() >= from + 2;
+        }));
+    };
+    const auto deliver = [&](const std::size_t n) {
+        const auto target = socket->delivered() + n;
+        socket->allowUpTo(target);
+        REQUIRE(waitUntil([&] { return socket->delivered() == target; }));
+        settle();
+    };
+    const auto advanceToMs = [&](const std::uint64_t ms) {
+        manualNowNs.store(ms * kMs, std::memory_order_release);
+        settle();
+    };
+
+    alloc_probe::reset();
+    std::stop_source stopper;
+    std::thread      worker{[&] {
+        alloc_probe::counting = true;
+        receiver.run(stopper.get_token());
+        alloc_probe::counting = false;
+    }};
+
+    using pw::net::UdpReceiverState;
+    std::uint64_t mark = 0;
+    const auto    delta = [&] {
+        const auto now = alloc_probe::count();
+        const auto d   = now - mark;
+        mark           = now;
+        return d;
+    };
+
+    settle();
+    const auto idleListening = delta();
+
+    deliver(1);
+    REQUIRE(receiver.state() == UdpReceiverState::Receiving);
+    const auto firstDatagram = delta();
+
+    deliver(50);
+    REQUIRE(receiver.state() == UdpReceiverState::Receiving);
+    const auto whileReceiving = delta();
+
+    advanceToMs(3'000);
+    REQUIRE(receiver.state() == UdpReceiverState::Silent);
+    const auto firstSilence = delta();
+
+    advanceToMs(4'000);
+    deliver(1);
+    REQUIRE(receiver.state() == UdpReceiverState::Receiving);
+    const auto reconnect = delta();
+
+    advanceToMs(5'000);
+    deliver(1);
+    REQUIRE(receiver.lastActivityNs() == 5'000 * kMs);   // el oversized renovo
+    const auto oversizedRenew = delta();
+
+    advanceToMs(7'000);
+    REQUIRE(receiver.state() == UdpReceiverState::Silent);
+    const auto secondSilence = delta();
+
+    deliver(1);
+    REQUIRE(receiver.state() == UdpReceiverState::Receiving);
+    const auto oversizedReconnect = delta();
+
+    stopper.request_stop();
+    worker.join();
+    drain();
+
+    const auto total = alloc_probe::count();
+
+    WARN("COLD PATH estado: esperas en Listening " << idleListening << ", primer datagrama "
+         << firstDatagram << ", 50 en Receiving " << whileReceiving << ", Receiving->Silent "
+         << firstSilence << ", Silent->Receiving " << reconnect << ", oversized renueva "
+         << oversizedRenew << ", segundo silencio " << secondSilence
+         << ", oversized reconecta " << oversizedReconnect << "  ->  total " << total
+         << " asignaciones en T1  [" << alloc_probe::describeSizes() << "]");
+
+    REQUIRE(receiver.silenceTransitions() == 2);
+    REQUIRE(idleListening == 0);
+    REQUIRE(firstDatagram == 0);
+    REQUIRE(whileReceiving == 0);
+    REQUIRE(firstSilence == 0);
+    REQUIRE(reconnect == 0);
+    REQUIRE(oversizedRenew == 0);
+    REQUIRE(secondSilence == 0);
+    REQUIRE(oversizedReconnect == 0);
+    REQUIRE(total == 0);
+    REQUIRE(pool.inUse() == 0);
+}
+
 TEST_CASE("La instrumentacion detecta una asignacion de verdad",
           "[net][receiver][allocations]")
 {

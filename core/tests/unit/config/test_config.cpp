@@ -53,6 +53,7 @@ TEST_CASE("Los valores por defecto son los documentados", "[config][defaults]")
     REQUIRE(config.net.receiveBufferBytes == 4'194'304);
     REQUIRE(config.net.poolSize == 20480);
     REQUIRE(config.net.originFilter.empty());
+    REQUIRE(config.net.silenceTimeoutMs == 2000);
     REQUIRE(config.recording.enabled);
     REQUIRE(config.recording.compressionLevel == 3);
     REQUIRE(config.recording.syncPointIntervalSeconds == 10);
@@ -331,6 +332,47 @@ TEST_CASE("El valor por defecto del pool cumple su propio minimo",
     REQUIRE(config.net.poolSize == pw::config::kDefaultPoolSize);
     REQUIRE(config.net.poolSize >= pw::config::kMinimumPoolSize);
     REQUIRE(pw::config::validate(config).has_value());
+}
+
+TEST_CASE("El silencio de RF-012 se configura dentro de su rango",
+          "[config][validation][RF-012][F1.1-10]")
+{
+    REQUIRE(pw::config::defaults().net.silenceTimeoutMs == 2000);
+
+    // Por argumentos: el valor se acepta y el resto no cambia.
+    const auto overridden = pw::config::load({"--set", "net.silenceTimeoutMs=1500"}, fakeEnv({}));
+    REQUIRE(overridden.has_value());
+    REQUIRE(overridden.value().net.silenceTimeoutMs == 1500);
+
+    // Y por entorno.
+    const auto fromEnv =
+        pw::config::load({}, fakeEnv({{"PITWALL_NET_SILENCETIMEOUTMS", "100"}}));
+    REQUIRE(fromEnv.has_value());
+    REQUIRE(fromEnv.value().net.silenceTimeoutMs == 100);
+
+    // Los dos extremos del rango son validos; un paso fuera, no.
+    for (const auto* accepted : {"100", "2000"}) {
+        INFO("valor: " << accepted);
+        auto config = pw::config::defaults();
+        REQUIRE(pw::config::setValue(config, "net.silenceTimeoutMs", accepted).has_value());
+        REQUIRE(pw::config::validate(config).has_value());
+    }
+    for (const auto* rejected : {"99", "2001", "0", "2400", "3000"}) {
+        INFO("valor: " << rejected);
+        const auto loaded = pw::config::load(
+            {"--set", std::string{"net.silenceTimeoutMs="} + rejected}, fakeEnv({}));
+        REQUIRE_FALSE(loaded.has_value());
+        REQUIRE(loaded.error().key == "net.silenceTimeoutMs");
+        REQUIRE(loaded.error().kind == pw::config::ConfigErrorKind::InvalidValue);
+    }
+
+    // validate() tambien lo comprueba cuando el valor llega sin pasar por texto.
+    auto config                 = pw::config::defaults();
+    config.net.silenceTimeoutMs = 5000;
+    const auto valid            = pw::config::validate(config);
+    REQUIRE_FALSE(valid.has_value());
+    REQUIRE(valid.error().key == "net.silenceTimeoutMs");
+    REQUIRE(contains(valid.error().describe(), "RF-012"));
 }
 
 TEST_CASE("uiSource solo admite embedded o dev-server", "[config][validation][ADR-002]")

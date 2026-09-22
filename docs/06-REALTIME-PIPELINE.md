@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.3"
+version: "1.4"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -239,6 +239,91 @@ contados en `udp_packets_invalid_total{reason=oversized}`.
 > Medido con la compilación instrumentada: **0 asignaciones en T1** en el primer datagrama del primer
 > origen, en el primero del segundo, en un origen conocido y con la tabla llena, con el contador
 > armado antes del primer datagrama; y 0 en 10.000 datagramas de 10 orígenes intercalados.
+
+### 2.2.3. Estado de la adquisición: escuchando, recibiendo, en silencio
+
+*(decidido en F1.1-10, RF-012)*
+
+**UDP no establece ninguna conexión persistente.** No hay nada que el juego abra o cierre frente a
+PitWall. Lo único que PitWall puede saber es si **observa** datagramas en su socket, y los estados
+describen exactamente eso:
+
+| Estado | Significado | La interfaz muestra |
+|---|---|---|
+| `Listening` | El socket escucha, pero desde el arranque **todavía no se ha observado ningún datagrama** | *Escuchando* |
+| `Receiving` | Se ha observado un datagrama hace **menos** de `silenceTimeoutMs` | *Recibiendo* |
+| `Silent` | **Había** tráfico y lleva **al menos** `silenceTimeoutMs` sin observarse un datagrama nuevo | *Desconectado* |
+
+```mermaid
+stateDiagram-v2
+    [*] --> Listening: socket enlazado
+    Listening --> Receiving: primer datagrama observado
+    Receiving --> Receiving: datagrama (renueva, no es transición)
+    Receiving --> Silent: ahora − última actividad ≥ silenceTimeoutMs
+    Silent --> Receiving: datagrama observado
+```
+
+El silencio **no** lleva de `Listening` a `Silent`: «nunca ha llegado nada» y «llegaba y ha dejado de
+llegar» son diagnósticos distintos, y la lista de comprobación de RF-624 depende de distinguirlos.
+Los estados de formato y de sesión (§3, §6.3) son de capas posteriores y no están aquí.
+
+**Tiempo de silencio.** `net.silenceTimeoutMs`, **2000 ms** por defecto, configurable entre **100 y
+2000**. Mide el tiempo desde el último datagrama de **cualquier** tipo, no desde el último de un tipo
+concreto. La comparación es **`ahora − última actividad ≥ silenceTimeoutMs`**: con 2000 ms, el
+silencio vence **al alcanzar** los 2000 ms.
+
+| Cota | Por qué |
+|---|---|
+| Mínimo 100 ms | Es la granularidad del ciclo de espera (§2.1.2) en el que se comprueba el silencio. Un valor menor no daría una resolución efectiva mejor |
+| Máximo 2000 ms | Es el valor de diseño. Peor caso visible: 2000 + ~100 ms de ciclo + ~500 ms de refresco de la interfaz ≈ **2,6 s**, con margen para planificación, propagación y fluctuación antes de los 3 s de la aceptación de RF-012. Un máximo de 2400 ms llegaría a los 3 s sin ningún margen |
+
+**Qué es actividad: la llegada observada de un datagrama**, no su validez.
+
+| Resultado de `receive()` | ¿Renueva? | Por qué |
+|---|---|---|
+| Datagrama normal | Sí | Llegó |
+| Datagrama truncado | Sí | Llegó; que sea inválido es otra cuestión, y ya se cuenta |
+| *Oversized* (`WSAEMSGSIZE`/`EMSGSIZE`) | **Sí** | Ese error sólo existe si ha llegado un datagrama. No hay contenido ni origen, así que no se atribuye a ningún `SourceIndex`, pero renueva la actividad **global** |
+| Espera vencida | No | No llegó nada. Es el momento en que se **comprueba** el silencio |
+| Fallo del socket | No | No es un datagrama. También comprueba el silencio |
+| Socket cerrado | No | El bucle termina; el estado se queda como estaba. **No es silencio** |
+| Pool agotado | No | No se llegó a llamar a `receive()`: no se ha observado nada y no se inventa actividad. También comprueba el silencio |
+
+**Reloj.** Monótono (`monotonicNowNs()`), el mismo que estampa `recvTimeNs`. El receptor lo recibe
+como un puntero a función inyectable, que las pruebas sustituyen por un reloj manual: ninguna prueba
+duerme los 2 s.
+
+**Sin hilo ni temporizador aparte.** La espera acotada de §2.1.2 ya despierta a T1 cada ~100 ms; la
+comprobación del silencio va en esa vuelta. Nada gira en vacío.
+
+**Concurrencia.** T1 es el **único escritor** del estado, de la marca de última actividad y de los
+dos contadores de entradas por estado. Cualquier hilo los lee: son atómicos por eso, y no hay mutex
+porque no hay dos escritores. Cada transición guarda primero el estado y después incrementa el
+contador del estado de llegada con `release`; quien lo lee con `acquire` ve un estado al menos tan
+nuevo como la transición que cuenta.
+
+**Transiciones repetibles, sin registrar desde T1.** `Receiving → Silent` puede ocurrir muchas veces
+en una sesión, así que no sirve el aviso de «una vez por vida» de §2.2.1. La máquina es tan pequeña
+que **dos contadores monótonos la describen entera**: entradas en `Receiving` (desde `Listening` o
+desde `Silent`) y entradas en `Silent` (sólo desde `Receiving`). `reportStateTransitions()`, **fuera
+de T1** y con un único consumidor, guarda el último valor visto de cada uno y calcula los deltas. Así,
+si entre dos lecturas hubo `Receiving → Silent → Receiving`, el informe dice **1 entrada en `Silent`
+y 1 en `Receiving`**, no «2 cambios»: no se pierde el tipo de ninguna transición. Lo que no se
+conserva es el instante de cada una. `Receiving → Receiving` y `Silent → Silent` no existen, así que
+no incrementan nada. Los contadores de publicación son internos; la única métrica de transiciones
+sigue siendo `udp_silence_transitions_total`.
+
+| Métrica | Tipo | Qué cuenta |
+|---|---|---|
+| `udp_receiver_state` | medidor | 0 `listening`, 1 `receiving`, 2 `silent` |
+| `udp_silence_transitions_total` | contador | Sólo `receiving → silent` |
+
+No se usa `transport_connected`: es la conexión de la ventana al transporte interno (§8), otro
+subsistema.
+
+> Medido con la compilación instrumentada: **0 asignaciones en T1** en las esperas de `Listening`, en
+> el primer datagrama, en 50 datagramas en `Receiving`, en `Receiving → Silent`, en `Silent →
+> Receiving`, en un *oversized* que renueva, en el segundo silencio y en un *oversized* que reconecta.
 
 ### 2.3. Prioridad del hilo
 
@@ -643,6 +728,7 @@ Que el 100 % del pipeline sea idéntico es lo que hace que las pruebas de integr
 | T1 · validación | `udp_packets_invalid_total{reason}` | ◐ `truncated`, `oversized`, `socket_error` ✅; causas del decodificador ⏳ F1.2 |
 | T1 · origen y tamaño | `udp_packets_by_source_total{source}`, `udp_bytes_by_source_total{source}`, `udp_packets_by_size_total{bytes}` (§2.2.2) | ✅ |
 | T1 · socket | `udp_socket_receive_buffer_bytes` | ✅ |
+| T1 · estado | `udp_receiver_state`, `udp_silence_transitions_total` (§2.2.3) | ✅ |
 | T1 · encolado | `udp_pool_exhaustion_total`, `udp_datagrams_delivered_total` | ✅ |
 | T1 · encolado | `recv_to_enqueue_ns` | ⏳ |
 | Colas | `pipeline_dropped_total{queue,reason}` | ◐ `raw` y `rec` con `reason=full` ✅; resto de colas ⏳ |

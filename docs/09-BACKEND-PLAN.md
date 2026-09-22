@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Plan de backend"
 subtitle: "Módulos C++20/23: shell de escritorio, decoders, estado, persistencia y transporte interno"
-version: "1.3"
+version: "1.4"
 status: "Vigente"
-date: "2026-09-12"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-BE-009"
 ---
@@ -525,6 +525,7 @@ port = 20777
 receiveBufferBytes = 4194304
 poolSize = 20480             # ≥ 16.387: la SUMA de Qraw y Qrec más los buffers en vuelo (§8)
 originFilter = []            # vacío = aceptar cualquier origen
+silenceTimeoutMs = 2000      # RF-012: sin datagramas ≥ esto → «Desconectado». Rango 100..2000
 
 [recording]
 enabled = true

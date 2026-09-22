@@ -28,7 +28,16 @@ namespace pw::test {
 struct ScriptedDatagram {
     net::Ipv4Endpoint origin{};
     std::size_t       size{0};
+    /// Si es true, esta entrada no entrega un datagrama sino el error `error`.
+    bool                 injectError{false};
+    net::SocketErrorKind error{net::SocketErrorKind::Unknown};
 };
+
+/// Entrada de guion que devuelve un error del socket en vez de un datagrama.
+[[nodiscard]] constexpr ScriptedDatagram scriptedError(const net::SocketErrorKind kind) noexcept
+{
+    return ScriptedDatagram{{}, 0, true, kind};
+}
 
 class ScriptedSocket final : public net::IUdpSocket {
 public:
@@ -68,12 +77,16 @@ public:
             || position >= allowed_.load(std::memory_order_acquire)) {
             // Fin del guion, o del tramo permitido: un socket en silencio.
             std::this_thread::sleep_for(std::chrono::milliseconds{1});
+            idlePolls_.fetch_add(1, std::memory_order_release);
             return Unexpected<net::ReceiveError>{net::ReceiveError{net::SocketErrorKind::Timeout, 0}};
         }
 
         const auto& entry = entries_[position % count_];
         next_.store(position + 1, std::memory_order_release);
 
+        if (entry.injectError) {
+            return Unexpected<net::ReceiveError>{net::ReceiveError{entry.error, 0}};
+        }
         if (entry.size > buffer.size()) {
             return Unexpected<net::ReceiveError>{net::ReceiveError{net::SocketErrorKind::Oversized, 0}};
         }
@@ -103,6 +116,14 @@ public:
     /// consumiria entero antes de que la prueba pudiera parar el bucle.
     void allowUpTo(const std::size_t n) noexcept { allowed_.store(n, std::memory_order_release); }
 
+    /// Esperas vencidas devueltas: cada una es una vuelta completa del bucle del
+    /// receptor sin datagrama. Las pruebas esperan a que avance para saber que el
+    /// receptor ya ha mirado el reloj despues de moverlo.
+    [[nodiscard]] std::uint64_t idlePolls() const noexcept
+    {
+        return idlePolls_.load(std::memory_order_acquire);
+    }
+
     /// Valor de la sonda al empezar la llamada `i` a receive(). Solo es fiable
     /// despues de parar el hilo del receptor.
     [[nodiscard]] std::uint64_t probeAt(const std::size_t i) const noexcept
@@ -118,6 +139,7 @@ private:
     std::array<std::uint64_t, kMaxEntries + 1> probes_{};
     std::atomic<std::size_t>                  next_{0};
     std::atomic<std::size_t>                  allowed_{static_cast<std::size_t>(-1)};
+    std::atomic<std::uint64_t>                idlePolls_{0};
 };
 
 } // namespace pw::test

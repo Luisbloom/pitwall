@@ -237,6 +237,7 @@ std::vector<KeyBinding> keyBindings()
         {"net.receiveBufferBytes",            "PITWALL_NET_RECEIVEBUFFERBYTES",            "Tamano de SO_RCVBUF"},
         {"net.poolSize",                      "PITWALL_NET_POOLSIZE",                      "Numero de buffers preasignados"},
         {"net.originFilter",                  "PITWALL_NET_ORIGINFILTER",                  "Origenes aceptados, separados por comas"},
+        {"net.silenceTimeoutMs",              "PITWALL_NET_SILENCETIMEOUTMS",              "Silencio que marca la fuente UDP como inactiva (RF-012)"},
         {"recording.enabled",                 "PITWALL_RECORDING_ENABLED",                 "Grabacion cruda activada"},
         {"recording.autoStartOnSession",      "PITWALL_RECORDING_AUTOSTARTONSESSION",      "Empezar a grabar al detectar sesion"},
         {"recording.directory",               "PITWALL_RECORDING_DIRECTORY",               "Carpeta de capturas"},
@@ -317,6 +318,9 @@ Result<void, ConfigError> setValue(Config& config, const std::string_view dotted
     if (dottedKey == "net.port")               { return assignUnsigned(config.net.port, 1, 65535); }
     if (dottedKey == "net.receiveBufferBytes") { return assignUnsigned(config.net.receiveBufferBytes, 65536, 256ULL * 1024ULL * 1024ULL); }
     if (dottedKey == "net.poolSize")           { return assignUnsigned(config.net.poolSize, 64, 1'048'576); }
+    if (dottedKey == "net.silenceTimeoutMs") {
+        return assignUnsigned(config.net.silenceTimeoutMs, kMinSilenceTimeoutMs, kMaxSilenceTimeoutMs);
+    }
     if (dottedKey == "net.originFilter") {
         config.net.originFilter = splitCsv(rawValue);
         return {};
@@ -660,6 +664,16 @@ Result<void, ConfigError> validate(const Config& config)
                            ", que es la suma de las capacidades de Qraw y Qrec mas "
                            "los buffers en vuelo; el valor por defecto es " +
                            std::to_string(kDefaultPoolSize));
+    }
+    if (config.net.silenceTimeoutMs < kMinSilenceTimeoutMs
+        || config.net.silenceTimeoutMs > kMaxSilenceTimeoutMs) {
+        return invalid("net.silenceTimeoutMs", std::to_string(config.net.silenceTimeoutMs),
+                       "entre " + std::to_string(kMinSilenceTimeoutMs) + " y " +
+                           std::to_string(kMaxSilenceTimeoutMs) +
+                           " ms: por debajo, el ciclo de espera de ~100 ms no daria mas resolucion; "
+                           "por encima, no quedaria margen para que la interfaz refleje la "
+                           "inactividad en los 3 s de RF-012. El valor por defecto es " +
+                           std::to_string(kDefaultSilenceTimeoutMs));
     }
     if (config.recording.compressionLevel < 1 || config.recording.compressionLevel > 19) {
         return invalid("recording.compressionLevel", std::to_string(config.recording.compressionLevel),

@@ -133,6 +133,48 @@ enum class ReceiverEvent : std::uint8_t {
     return "suceso desconocido del receptor";
 }
 
+/// Estado de la ADQUISICION, visto desde PitWall (F1.1-10, RF-012).
+///
+/// UDP no establece ninguna conexion persistente: no hay nada que se abra ni que
+/// se cierre entre el juego y PitWall. Estos estados describen solo lo que
+/// PitWall ha OBSERVADO en su socket:
+///
+///   Listening   el socket escucha, pero desde el arranque todavia no se ha
+///               observado ningun datagrama. El silencio no lo cambia: «nunca ha
+///               llegado nada» no es lo mismo que «ha dejado de llegar».
+///   Receiving   se ha observado un datagrama hace menos de silenceTimeoutMs.
+///   Silent      habia trafico y lleva al menos silenceTimeoutMs sin observarse
+///               un datagrama nuevo. La interfaz lo presenta como «Desconectado».
+///
+/// Los valores son los del medidor udp_receiver_state.
+enum class UdpReceiverState : std::uint8_t {
+    Listening = 0,
+    Receiving = 1,
+    Silent    = 2,
+};
+
+/// Transiciones ocurridas desde la ultima lectura, POR ESTADO DE LLEGADA. La
+/// maquina de estados es tan pequena que dos contadores la describen entera:
+/// solo se entra en Receiving (desde Listening o desde Silent) y en Silent
+/// (desde Receiving). Si entre dos lecturas hubo Receiving -> Silent ->
+/// Receiving, el informe dice 1 y 1, no «2 cambios».
+struct StateTransitionReport {
+    std::uint64_t toReceiving{0};
+    std::uint64_t toSilent{0};
+
+    [[nodiscard]] bool any() const noexcept { return toReceiving != 0 || toSilent != 0; }
+};
+
+/// Reloj del receptor: un puntero a funcion, no un std::function. Leerlo no
+/// asigna ni pasa por una indireccion mas cara que una llamada. Por defecto es
+/// el reloj monotono del proceso; las pruebas lo sustituyen por uno manual.
+using ReceiverClock = std::uint64_t (*)() noexcept;
+
+/// Silencio por defecto antes de pasar a Silent (RF-012). Con los ~100 ms del
+/// ciclo de espera y los 500 ms de refresco de la interfaz, el cambio se ve en
+/// ~2,6 s, dentro de los 3 s que exige la aceptacion de RF-012.
+inline constexpr std::uint32_t kDefaultSilenceTimeoutMs = 2000;
+
 struct UdpReceiverConfig {
     std::string   bindAddress{"127.0.0.1"};
     std::uint16_t port{20777};
@@ -144,6 +186,9 @@ struct UdpReceiverConfig {
     /// Espera cuando el pool esta agotado. Sin ella, el bucle giraria a plena
     /// CPU en un estado en el que ya no puede hacer nada util (RNF-010).
     std::uint32_t poolExhaustedBackoffUs{500};
+    /// Tiempo sin observar ningun datagrama tras el cual Receiving pasa a
+    /// Silent (RF-012). La comparacion es `transcurrido >= silenceTimeoutMs`.
+    std::uint32_t silenceTimeoutMs{kDefaultSilenceTimeoutMs};
 };
 
 struct UdpReceiverStats {
@@ -169,8 +214,11 @@ class UdpReceiverT {
 public:
     UdpReceiverT(UdpReceiverConfig config, mem::BufferPool& pool, RawQueue& rawQueue,
                  RecQueue& recQueue, obs::MetricsRegistry& metrics, obs::Logger& logger,
-                 std::unique_ptr<IUdpSocket> socket = makeUdpSocket())
+                 std::unique_ptr<IUdpSocket> socket = makeUdpSocket(),
+                 const ReceiverClock clock = &monotonicNowNs)
         : config_{std::move(config)}
+        , clock_{clock}
+        , silenceTimeoutNs_{static_cast<std::uint64_t>(config_.silenceTimeoutMs) * 1'000'000ULL}
         , pool_{pool}
         , rawQueue_{rawQueue}
         , recQueue_{recQueue}
@@ -188,10 +236,13 @@ public:
         , qrecDroppedCounter_{metrics.counter("pipeline_dropped_total", "queue=rec,reason=full")}
         , deliveredCounter_{metrics.counter("udp_datagrams_delivered_total")}
         , receiveBufferGauge_{metrics.gauge("udp_socket_receive_buffer_bytes")}
+        , stateGauge_{metrics.gauge("udp_receiver_state")}
+        , silenceTransitionsCounter_{metrics.counter("udp_silence_transitions_total")}
         // Un contador por cada longitud que cabe en un buffer del pool: se
         // reserva aqui, en el arranque, y T1 solo incrementa.
         , sizeCounts_{pool.bufferBytes()}
     {
+        stateGauge_.set(static_cast<std::int64_t>(UdpReceiverState::Listening));
     }
 
     UdpReceiverT(const UdpReceiverT&)            = delete;
@@ -272,6 +323,9 @@ public:
                 poolExhaustions_.fetch_add(1, std::memory_order_relaxed);
                 poolExhaustionCounter_.inc();
                 noteEvent(ReceiverEvent::PoolExhausted);
+                // No se ha observado ningun datagrama: no hay actividad que
+                // renovar, pero el silencio si puede vencer mientras tanto.
+                checkSilence(clock_());
                 // Sin buffer no hay nada que hacer. Se espera un instante en vez
                 // de girar a plena CPU: el sistema ya esta degradado, no hace
                 // falta empeorarlo.
@@ -283,10 +337,10 @@ public:
             auto received = socket_->receive(pool_.bytes(handle));
 
             // 2. Marca de tiempo ANTES de cualquier otro trabajo (RF-007).
-            const auto arrivalNs = monotonicNowNs();
+            const auto arrivalNs = clock_();
 
             if (!received) {
-                handleReceiveError(received.error(), handle);
+                handleReceiveError(received.error(), handle, arrivalNs);
                 if (received.error().kind == SocketErrorKind::Closed) { return; }
                 continue;
             }
@@ -298,6 +352,10 @@ public:
             bytes_.fetch_add(size, std::memory_order_relaxed);
             receivedCounter_.inc();
             bytesCounter_.inc(size);
+
+            // Actividad (RF-012): se ha observado un datagrama, sea cual sea su
+            // longitud. Un truncado tambien demuestra que alguien emite.
+            noteActivity(arrivalNs);
 
             // Por origen y por tamano (F1.1-08, F1.1-09), ANTES de validar: la
             // longitud y el emisor de un datagrama invalido son justo la pista
@@ -397,6 +455,69 @@ public:
                                 delivered_.load(std::memory_order_relaxed)};
     }
 
+    /// Estado de la adquisicion (RF-012). Seguro desde cualquier hilo.
+    [[nodiscard]] UdpReceiverState state() const noexcept
+    {
+        return state_.load(std::memory_order_acquire);
+    }
+
+    /// Marca monotona del ultimo datagrama observado; 0 si todavia ninguno.
+    [[nodiscard]] std::uint64_t lastActivityNs() const noexcept
+    {
+        return lastActivityNs_.load(std::memory_order_relaxed);
+    }
+
+    /// Entradas en Silent desde el arranque. Solo se entra desde Receiving, asi
+    /// que es exactamente el numero de transiciones Receiving -> Silent.
+    [[nodiscard]] std::uint64_t silenceTransitions() const noexcept
+    {
+        return toSilent_.load(std::memory_order_acquire);
+    }
+
+    /// Entradas en Receiving desde el arranque: la primera desde Listening y
+    /// cada vuelta desde Silent.
+    [[nodiscard]] std::uint64_t receivingTransitions() const noexcept
+    {
+        return toReceiving_.load(std::memory_order_acquire);
+    }
+
+    /// Registra las transiciones ocurridas desde la ultima llamada y las
+    /// devuelve, separadas por estado de llegada.
+    ///
+    /// A diferencia de reportPendingEvents(), que avisa de cada suceso una vez
+    /// por vida del receptor, esto se repite en cada cambio: Receiving -> Silent
+    /// puede ocurrir muchas veces en una sesion. Si entre dos llamadas hubo
+    /// varias transiciones, no se pierde de que tipo fue cada una: se registran
+    /// las entradas en Silent y las entradas en Receiving, cada una con su
+    /// recuento. Lo que NO se conserva es el instante de cada transicion.
+    ///
+    /// Mismo contrato que reportPendingEvents(): NO desde T1, y UN SOLO
+    /// consumidor (los ultimos valores vistos no estan sincronizados).
+    StateTransitionReport reportStateTransitions()
+    {
+        const auto toReceiving = toReceiving_.load(std::memory_order_acquire);
+        const auto toSilent    = toSilent_.load(std::memory_order_acquire);
+
+        const StateTransitionReport report{toReceiving - reportedToReceiving_,
+                                           toSilent - reportedToSilent_};
+        reportedToReceiving_ = toReceiving;
+        reportedToSilent_    = toSilent;
+
+        if (report.toSilent != 0) {
+            logger_.warn(kComponent,
+                         "sin datagramas UDP observados durante el tiempo de silencio: la fuente se "
+                         "considera inactiva. UDP no tiene conexion; esto solo significa que ha "
+                         "dejado de llegar trafico",
+                         {obs::field("silenceTimeoutMs", static_cast<std::uint64_t>(config_.silenceTimeoutMs)),
+                          obs::field("entradasEnSilencio", report.toSilent)});
+        }
+        if (report.toReceiving != 0) {
+            logger_.info(kComponent, "recibiendo datagramas UDP",
+                         {obs::field("entradasEnRecepcion", report.toReceiving)});
+        }
+        return report;
+    }
+
     /// Tabla de origenes (F1.1-09). Solo lectura desde fuera de T1.
     [[nodiscard]] const SourceRegistry& sources() const noexcept { return sources_; }
 
@@ -454,7 +575,8 @@ private:
         }
     }
 
-    void handleReceiveError(const ReceiveError error, const mem::BufferHandle handle) noexcept
+    void handleReceiveError(const ReceiveError error, const mem::BufferHandle handle,
+                            const std::uint64_t nowNs) noexcept
     {
         // Todos los caminos de error sueltan el buffer: es lo que garantiza que
         // no se fugue ni uno.
@@ -464,24 +586,78 @@ private:
         case SocketErrorKind::Timeout:
             // Lo normal cuando el juego no esta emitiendo. No se cuenta como
             // fallo ni se registra: a 10 veces por segundo inundaria el log.
+            // Es tambien el latido que comprueba el silencio (RF-012): la
+            // espera acotada ya despierta al bucle cada ~100 ms, asi que no
+            // hace falta ningun hilo ni temporizador aparte.
+            checkSilence(nowNs);
             break;
         case SocketErrorKind::Oversized:
             oversized_.fetch_add(1, std::memory_order_relaxed);
             oversizedCounter_.inc();
             noteEvent(ReceiverEvent::Oversized);
+            // WSAEMSGSIZE / EMSGSIZE solo existen si ha LLEGADO un datagrama:
+            // aunque no se conozca su contenido ni su origen, es trafico
+            // observado y renueva la actividad global.
+            noteActivity(nowNs);
             break;
         case SocketErrorKind::Closed:
+            // El bucle termina. No es silencio ni se confunde con el: el estado
+            // se queda como estaba.
             noteEvent(ReceiverEvent::SocketClosed);
             break;
         default:
             socketErrors_.fetch_add(1, std::memory_order_relaxed);
             socketErrorCounter_.inc();
             noteEvent(ReceiverEvent::SocketFailure);
+            // Un fallo del socket no es un datagrama: no renueva la actividad,
+            // pero el silencio puede vencer igual.
+            checkSilence(nowNs);
             // Un fallo desconocido que se repitiera sin pausa haria girar el
             // bucle a plena CPU. Se espera lo mismo que con el pool agotado.
             std::this_thread::sleep_for(std::chrono::microseconds{config_.poolExhaustedBackoffUs});
             break;
         }
+    }
+
+    // ── Estado de la adquisicion (F1.1-10, RF-012) ──────────────────────────
+    //
+    // Solo T1 llama a estas tres funciones. Son unas pocas cargas y almacenes
+    // sobre atomicos que ya existen: ni asignan, ni registran, ni bloquean.
+
+    /// Se ha observado un datagrama en `nowNs`.
+    void noteActivity(const std::uint64_t nowNs) noexcept
+    {
+        lastActivityNs_.store(nowNs, std::memory_order_relaxed);
+        // Receiving -> Receiving no es una transicion: nada que publicar.
+        if (state_.load(std::memory_order_relaxed) != UdpReceiverState::Receiving) {
+            transitionTo(UdpReceiverState::Receiving);
+        }
+    }
+
+    /// Comprueba si ha vencido el silencio. Solo actua desde Receiving: desde
+    /// Listening no hay trafico previo que haya dejado de llegar, y desde Silent
+    /// ya se publico la transicion.
+    void checkSilence(const std::uint64_t nowNs) noexcept
+    {
+        if (state_.load(std::memory_order_relaxed) != UdpReceiverState::Receiving) { return; }
+        const auto lastNs = lastActivityNs_.load(std::memory_order_relaxed);
+        // `>=`: un silencio de 2000 ms vence AL ALCANZAR los 2000 ms.
+        if (nowNs >= lastNs && nowNs - lastNs >= silenceTimeoutNs_) {
+            silenceTransitionsCounter_.inc();
+            transitionTo(UdpReceiverState::Silent);
+        }
+    }
+
+    /// Publica un cambio de estado. Primero el estado, despues el contador de
+    /// entradas en ese estado con release: quien lea el contador con acquire ve
+    /// un estado al menos tan nuevo como la transicion que cuenta. Nunca se
+    /// llama con Listening: a Listening no se vuelve.
+    void transitionTo(const UdpReceiverState next) noexcept
+    {
+        state_.store(next, std::memory_order_relaxed);
+        stateGauge_.set(static_cast<std::int64_t>(next));
+        auto& entries = next == UdpReceiverState::Silent ? toSilent_ : toReceiving_;
+        entries.fetch_add(1, std::memory_order_release);
     }
 
     /// Marca un suceso. Es TODO lo que T1 hace con lo excepcional: una escritura
@@ -498,6 +674,8 @@ private:
     }
 
     UdpReceiverConfig           config_;
+    ReceiverClock               clock_;
+    std::uint64_t               silenceTimeoutNs_;
     mem::BufferPool&            pool_;
     RawQueue&                   rawQueue_;
     RecQueue&                   recQueue_;
@@ -514,6 +692,8 @@ private:
     obs::Counter& qrecDroppedCounter_;
     obs::Counter& deliveredCounter_;
     obs::Gauge&   receiveBufferGauge_;
+    obs::Gauge&   stateGauge_;
+    obs::Counter& silenceTransitionsCounter_;
 
     std::size_t effectiveReceiveBufferBytes_{0};
 
@@ -530,6 +710,18 @@ private:
     std::atomic<std::uint64_t> qrawDropped_{0};
     std::atomic<std::uint64_t> qrecDropped_{0};
     std::atomic<std::uint64_t> delivered_{0};
+
+    /// Estado de la adquisicion. ESCRIBE solo T1; LEE cualquier hilo. Atomicos
+    /// porque se leen desde fuera; sin mutex porque hay un unico escritor.
+    std::atomic<UdpReceiverState> state_{UdpReceiverState::Listening};
+    std::atomic<std::uint64_t>    lastActivityNs_{0};
+    std::atomic<std::uint64_t>    toReceiving_{0};   ///< entradas en Receiving
+    std::atomic<std::uint64_t>    toSilent_{0};      ///< entradas en Silent
+
+    /// Ultimos valores registrados. Solo los toca el consumidor unico de
+    /// reportStateTransitions().
+    std::uint64_t reportedToReceiving_{0};
+    std::uint64_t reportedToSilent_{0};
 
     /// Preasignadas al construir. T1 SOLO escribe aqui.
     std::array<std::atomic<bool>, receiverEventCount()> events_{};
