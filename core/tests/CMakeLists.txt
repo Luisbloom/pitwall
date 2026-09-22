@@ -65,7 +65,8 @@ pw_add_test_executable(pw_net_tests
         unit/net/test_udp_socket.cpp
         unit/net/test_udp_receiver.cpp
         unit/net/test_source_registry.cpp
-    LIBRARIES pw_net)
+        unit/net/test_receiver_state.cpp
+    LIBRARIES pw_net pw_config)
 
 # COMPILACION INSTRUMENTADA (F1.1-07, RNF-013): este ejecutable sustituye los
 # operadores globales de reserva de memoria para contar asignaciones en el hilo

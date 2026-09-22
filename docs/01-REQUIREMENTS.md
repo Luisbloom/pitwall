@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Documento de Requisitos de Software"
 subtitle: "Plataforma de telemetría e ingeniería de carrera para EA SPORTS F1 25 y F1 25: 2026 Season Pack"
-version: "1.3"
+version: "1.4"
 status: "Aprobado para desarrollo"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -988,7 +988,7 @@ Fase: `F1` (MVP), `F2` (Alpha), `F3` (Beta/V1), `F4` (futuro).
 | **RF-010** | Soportar la recepción en modo broadcast del juego. | SHOULD | RF-003 | Con broadcast activado en el juego, PitWall recibe sin configurar la IP de destino. | Todos | F2 |
 | **RF-011** | Leer `hardware_settings_config.xml` (si existe) para **detectar** la configuración del juego y explicar al usuario qué falta. | **MUST** | — | Con el XML presente, la pantalla de estado muestra el puerto, la IP y el formato configurados en el juego. | — | F1 |
 | **RF-011b** | Ofrecer **configuración asistida**: escribir el bloque `<udp>` del XML por el usuario, **sólo** con consentimiento explícito, **con copia de seguridad previa** del fichero y **sólo con el juego cerrado**. | SHOULD | RF-011 | Se crea `hardware_settings_config.xml.pitwall-backup-<fecha>`; con el juego abierto la acción se bloquea con explicación (el juego sobrescribe el XML al cerrarse `[S1]`). | — | F2 |
-| **RF-012** | Detectar la ausencia de datagramas durante más de N segundos y pasar a estado *desconectado*. | MUST | RF-001 | Al parar el emisor, el estado cambia en ≤ 3 s y la UI lo refleja. | — | F1 |
+| **RF-012** | Detectar la ausencia de datagramas durante al menos N segundos (`net.silenceTimeoutMs`, 2 s por defecto) y pasar a estado *desconectado*. UDP no tiene conexión: *desconectado* significa que PitWall había observado tráfico y lleva al menos N s sin observar un datagrama nuevo. | MUST | RF-001 | Al parar el emisor, el estado cambia en ≤ 3 s y la UI lo refleja. | — | F1 |
 
 ### 16.2. RF-1xx — Protocolo y decodificación
 
@@ -1633,7 +1633,7 @@ stateDiagram-v2
     CambioSesion --> SesionActiva
     SesionActiva --> CambioFormato: m_packetFormat distinto
     CambioFormato --> FormatoDetectado
-    SesionActiva --> Desconectado: sin datos > 3 s
+    SesionActiva --> Desconectado: sin datagramas ≥ N s (2 s por defecto)
     Desconectado --> Recibiendo: llega un datagrama
     SesionActiva --> Finalizada: SEND o clasificación final
     Finalizada --> Escuchando
@@ -1861,6 +1861,8 @@ fase posterior: ✅ implementada · ◐ parcial · ⏳ planificada.
 | `udp_pool_exhaustion_total` | contador | — | ✅ F1.1. Veces que T1 pidió un buffer y no había ninguno libre: un **estado**, no un recuento de datagramas perdidos |
 | `udp_datagrams_delivered_total` | contador | — | ✅ F1.1. Datagramas encolados en al menos una de las colas `Qraw`/`Qrec` |
 | `udp_socket_receive_buffer_bytes` | medidor | — | ✅ F1.1. `SO_RCVBUF` **concedido** por el sistema, no el solicitado (RNF-026) |
+| `udp_receiver_state` | medidor | 0 `listening`, 1 `receiving`, 2 `silent` | ✅ F1.1. Estado de la adquisición (RF-012). Describe lo **observado** en el socket, no una conexión: UDP no la tiene |
+| `udp_silence_transitions_total` | contador | — | ✅ F1.1. Veces que se pasó de `receiving` a `silent` (RF-012). Ninguna otra transición lo incrementa |
 | `udp_datagrams_per_second` | medidor | `packet_id` | ⏳ |
 | `udp_estimated_loss_total` | contador | derivado de huecos de `overallFrameIdentifier` | ⏳ |
 | `decoder_errors_total` | contador | `format`, `packet_id` | ⏳ |
