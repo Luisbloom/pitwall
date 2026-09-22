@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
-date: "2026-09-12"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-RTP-006"
 ---
@@ -192,6 +192,53 @@ precondición explícita, no una carencia.
 
 > Medido con la compilación instrumentada: **0 asignaciones en T1** con el contador armado *antes del
 > primer datagrama*, incluyendo la primera aparición de cada causa excepcional.
+
+### 2.2.2. Contadores por origen y por tamaño
+
+*(decidido en F1.1-08 y F1.1-09)*
+
+Cada datagrama leído del socket se cuenta, **antes de validarlo**, en dos tablas preasignadas. Antes
+de validar porque el emisor y la longitud de un datagrama inválido son justo la pista de por qué lo
+es.
+
+**Tabla de orígenes (`SourceRegistry`, RF-009).** La identidad de un origen es el par (IP, puerto):
+misma IP con otro puerto es otro origen, y el mismo puerto desde otra IP también. Se guarda en
+binario —un `uint64` con un bit de ocupado, la IPv4 y el puerto— y cada origen distinto recibe un
+índice pequeño y estable (`SourceIndex`) que viaja en `ReceivedDatagram` junto al origen exacto. El
+índice cabe en el relleno que el struct ya tenía: el elemento de cola sigue midiendo 32 B.
+
+| Aspecto | Decisión |
+|---|---|
+| Capacidad | **8, fija.** Lo normal es un origen; el caso real documentado son dos [S9]. Las 8 claves ocupan una línea de caché: buscar es recorrer 64 B contiguos, más barato que un hash y sin nada que pueda crecer |
+| Tabla llena | Un origen nuevo **no desplaza a nadie**: recibe `kUnregisteredSource`, se cuenta en una ranura de desbordamiento, **se sigue entregando** y T1 marca el suceso `SourceTableFull` (§2.2.1). Nunca bloquea, nunca asigna y nunca cambia un índice existente |
+| Vida de un índice | La del receptor. No se borran entradas |
+| Escritor | **Sólo T1.** Escribe la clave y después publica el nuevo tamaño con `release` |
+| Lectores | Cualquier hilo: `acquire` del tamaño y sólo las ranuras por debajo. Una entrada publicada es inmutable, así que la instantánea es coherente sin ningún mutex |
+| Texto `a.b.c.d:puerto` | Sólo fuera de T1, al leer |
+
+La tabla **no filtra**: el filtro por origen es F2 (RF-009, F2.4) y se apoyará en este índice.
+
+**Contadores por tamaño (`DatagramSizeCounts`, RF-008).** Un contador por cada longitud posible, de
+0 al tamaño del buffer del pool, reservado al construir (2.049 contadores, 16 KiB). Exacto y no por
+cubos: cada paquete de F1 tiene un tamaño fijo, y Diagnostics compara tamaños observados con
+esperados (CU-12). Incluye los truncados; no incluye los *oversized*, cuya longitud real no se conoce.
+
+**Por qué no están en el `MetricsRegistry`.** Sus etiquetas —el texto del origen, la longitud— sólo se
+conocen al recibir, y registrar una métrica nueva toma un mutex y asigna. T1 cuenta en las tablas
+preasignadas, y `appendMetricSamples()` construye las muestras fuera de T1:
+
+| Métrica | Etiquetas |
+|---|---|
+| `udp_packets_by_source_total` | `source=a.b.c.d:puerto` o `source=unregistered` (siempre presente, también a 0) |
+| `udp_bytes_by_source_total` | ídem |
+| `udp_packets_by_size_total` | `bytes=N`, sólo longitudes observadas |
+
+Los *oversized* no se atribuyen a ningún origen: el socket no informa del emisor en ese error. Siguen
+contados en `udp_packets_invalid_total{reason=oversized}`.
+
+> Medido con la compilación instrumentada: **0 asignaciones en T1** en el primer datagrama del primer
+> origen, en el primero del segundo, en un origen conocido y con la tabla llena, con el contador
+> armado antes del primer datagrama; y 0 en 10.000 datagramas de 10 orígenes intercalados.
 
 ### 2.3. Prioridad del hilo
 
@@ -587,17 +634,28 @@ Que el 100 % del pipeline sea idéntico es lo que hace que las pruebas de integr
 
 ## 11. Instrumentación
 
-| Punto | Métrica |
-|---|---|
-| T1 · entrada | `udp_packets_received_total`, `udp_bytes_received_total` |
-| T1 · validación | `udp_packets_invalid_total{reason}` |
-| T1 · encolado | `recv_to_enqueue_ns`, `pool_exhausted_total` |
-| Colas | `queue_depth{queue}`, `queue_wait_ns{queue}`, `queue_dropped_total{queue,reason}` |
-| T2 · decode | `decode_duration_ns{packet_id}`, `decoder_errors_total{format,packet_id}` |
-| T2 · estado | `state_apply_ns`, `duplicates_total`, `stale_total`, `branches_created_total` |
-| T4 | `samples_persisted_total{entity}`, `persist_batch_duration_ns`, `decimation_level` |
-| T5 | `transport_connected`, `transport_messages_sent_total{channel}`, `transport_coalesced_total`, `transport_rejected_total{reason}` |
-| Global | `end_to_end_latency_ms`, `estimated_packet_loss_ratio` |
+✅ implementada en F1.1 · ◐ parcial · ⏳ planificada. Las métricas de la lista oficial siguen
+`01-REQUIREMENTS.md` §27.2; las de tiempo por etapa (`*_ns`) son las que vigilan el presupuesto de §1.
+
+| Punto | Métrica | Estado |
+|---|---|---|
+| T1 · entrada | `udp_packets_received_total`, `udp_bytes_received_total` | ✅ (las etiquetas `format`/`packet_id` de la primera, ⏳ F1.2) |
+| T1 · validación | `udp_packets_invalid_total{reason}` | ◐ `truncated`, `oversized`, `socket_error` ✅; causas del decodificador ⏳ F1.2 |
+| T1 · origen y tamaño | `udp_packets_by_source_total{source}`, `udp_bytes_by_source_total{source}`, `udp_packets_by_size_total{bytes}` (§2.2.2) | ✅ |
+| T1 · socket | `udp_socket_receive_buffer_bytes` | ✅ |
+| T1 · encolado | `udp_pool_exhaustion_total`, `udp_datagrams_delivered_total` | ✅ |
+| T1 · encolado | `recv_to_enqueue_ns` | ⏳ |
+| Colas | `pipeline_dropped_total{queue,reason}` | ◐ `raw` y `rec` con `reason=full` ✅; resto de colas ⏳ |
+| Colas | `pipeline_queue_depth{queue}`, `queue_wait_ns{queue}` | ⏳ |
+| T2 · decode | `decode_duration_ns{packet_id}`, `decoder_errors_total{format,packet_id}` | ⏳ |
+| T2 · estado | `state_apply_ns`, `duplicates_total`, `stale_total`, `branches_created_total` | ⏳ |
+| T4 | `samples_persisted_total{entity}`, `persist_batch_duration_ns`, `decimation_level` | ⏳ |
+| T5 | `transport_connected`, `transport_messages_sent_total{channel}`, `transport_coalesced_total`, `transport_rejected_total{reason}` | ⏳ |
+| Global | `end_to_end_latency_ms`, `estimated_packet_loss_ratio` | ⏳ |
+
+*(v1.3: hasta la v1.2 esta tabla usaba `pool_exhausted_total`, `queue_dropped_total` y `queue_depth`.
+Eran nombres anteriores al código; los canónicos son los de arriba, que coinciden con el código y con
+`01-REQUIREMENTS.md` §27.2.)*
 
 Todas visibles en *UDP Diagnostics*, que es la herramienta de trabajo diario durante el desarrollo (RF-606).
 

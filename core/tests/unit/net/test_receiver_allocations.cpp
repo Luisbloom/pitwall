@@ -59,6 +59,7 @@
 #include "pw/net/udp_receiver.hpp"
 #include "pw/obs/logging.hpp"
 #include "pw/obs/metrics.hpp"
+#include "scripted_socket.hpp"
 
 using namespace std::chrono_literals;
 
@@ -638,6 +639,183 @@ TEST_CASE("Cero asignaciones al cerrarse el socket bajo el bucle",
 
     REQUIRE(receiver.eventSeen(pw::net::ReceiverEvent::SocketClosed));
     REQUIRE(alloc_probe::count() == 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tabla de origenes (F1.1-08, F1.1-09): cero asignaciones tambien al registrar
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+using pw::test::ScriptedDatagram;
+using pw::test::ScriptedSocket;
+
+constexpr Ipv4Endpoint lanHost(const std::size_t i)
+{
+    return Ipv4Endpoint{{192, 168, 1, static_cast<std::uint8_t>(10 + i)}, 20777};
+}
+
+std::uint64_t probeAllocations() noexcept { return alloc_probe::count(); }
+
+} // namespace
+
+TEST_CASE("COLD PATH: cero asignaciones al registrar origenes, uno a uno y con la tabla llena",
+          "[net][receiver][allocations][coldpath][sources][RNF-013][F1.1-09]")
+{
+    // El contador se arma antes del primer datagrama. El socket de guion
+    // consulta la sonda al empezar cada receive(), asi que la diferencia entre
+    // dos llamadas seguidas es lo que asigno T1 procesando UN datagrama concreto.
+    // Eso permite atribuir cada caso por separado en vez de dar solo un total.
+    std::vector<ScriptedDatagram> script;
+    script.push_back({lanHost(0), 1349});   // 0: primer datagrama del primer origen
+    script.push_back({lanHost(1), 1349});   // 1: primer datagrama del segundo origen
+    script.push_back({lanHost(0), 1349});   // 2: origen ya conocido
+    for (std::size_t i = 2; i < pw::net::kMaxSources; ++i) {
+        script.push_back({lanHost(i), 64});  // 3..8: se completa la tabla
+    }
+    const auto fullAt = script.size();
+    script.push_back({lanHost(20), 64});    // primer origen con la tabla llena
+    script.push_back({lanHost(0), 64});     // conocido, con la tabla llena
+    script.push_back({lanHost(21), 64});    // otro origen sin sitio
+    script.push_back({lanHost(22), 10});    // truncado de un origen sin sitio
+
+    pw::mem::BufferPool pool{64, 2048};
+    auto                rawQueue = std::make_unique<RawQueue>();
+    auto                recQueue = std::make_unique<RecQueue>();
+
+    pw::obs::MetricsRegistry metrics;
+    pw::obs::Logger          logger{pw::obs::LoggerConfig{}};
+
+    auto        scripted = std::make_unique<ScriptedSocket>(script, 1, &probeAllocations);
+    auto* const socket   = scripted.get();
+
+    pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
+                                  metrics, logger, std::move(scripted)};
+    REQUIRE(receiver.open().has_value());
+
+    alloc_probe::reset();
+
+    std::stop_source stopper;
+    std::thread      worker{[&] {
+        alloc_probe::counting = true;
+        receiver.run(stopper.get_token());
+        alloc_probe::counting = false;
+    }};
+
+    const auto all = waitUntil([&] { return socket->delivered() == socket->total(); });
+    // Una vuelta mas del bucle para que la sonda capture el cierre del ultimo.
+    std::this_thread::sleep_for(20ms);
+    stopper.request_stop();
+    worker.join();
+
+    const auto during = [&](const std::size_t i) {
+        return socket->probeAt(i + 1) - socket->probeAt(i);
+    };
+
+    const auto firstOfFirst  = during(0);
+    const auto firstOfSecond = during(1);
+    const auto known         = during(2);
+    const auto firstFull     = during(fullAt);
+    const auto knownFull     = during(fullAt + 1);
+    const auto total         = alloc_probe::count();
+
+    WARN("COLD PATH origenes: primer datagrama del primer origen "
+         << firstOfFirst << ", del segundo " << firstOfSecond << ", conocido " << known
+         << ", tabla llena " << firstFull << ", conocido con tabla llena " << knownFull
+         << "  ->  total " << total << " asignaciones en T1  [" << alloc_probe::describeSizes()
+         << "]");
+
+    REQUIRE(all);
+    REQUIRE(receiver.sources().size() == pw::net::kMaxSources);
+    REQUIRE(receiver.sources().datagrams(pw::net::kUnregisteredSource) == 3);
+    REQUIRE(receiver.eventSeen(pw::net::ReceiverEvent::SourceTableFull));
+
+    REQUIRE(firstOfFirst == 0);
+    REQUIRE(firstOfSecond == 0);
+    REQUIRE(known == 0);
+    REQUIRE(firstFull == 0);
+    REQUIRE(knownFull == 0);
+    REQUIRE(total == 0);
+
+    ReceivedDatagram datagram;
+    while (rawQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+    while (recQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+    REQUIRE(pool.inUse() == 0);
+}
+
+TEST_CASE("STEADY STATE: cero asignaciones con origenes intercalados y la tabla llena",
+          "[net][receiver][allocations][steady][sources][RNF-013][F1.1-08][F1.1-09]")
+{
+    // Diez origenes que se turnan -ocho con indice y dos sin sitio- con tamanos
+    // distintos y un truncado en cada vuelta. Tras una vuelta de calentamiento,
+    // mil vueltas medidas: diez mil datagramas.
+    std::vector<ScriptedDatagram> cycle;
+    for (std::size_t i = 0; i < pw::net::kMaxSources + 2; ++i) {
+        cycle.push_back({lanHost(i), i == 5 ? std::size_t{10} : 64 + i * 100});
+    }
+    constexpr std::size_t kRepeats = 1'001;
+
+    pw::mem::BufferPool pool{pw::mem::kMinimumPoolSize, 2048};
+    auto                rawQueue = std::make_unique<RawQueue>();
+    auto                recQueue = std::make_unique<RecQueue>();
+
+    pw::obs::MetricsRegistry metrics;
+    pw::obs::Logger          logger{pw::obs::LoggerConfig{}};
+
+    auto        scripted = std::make_unique<ScriptedSocket>(cycle, kRepeats);
+    auto* const socket   = scripted.get();
+
+    pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
+                                  metrics, logger, std::move(scripted)};
+    REQUIRE(receiver.open().has_value());
+
+    const auto drain = [&] {
+        ReceivedDatagram datagram;
+        while (rawQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+        while (recQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+    };
+
+    // ── Calentamiento: una vuelta del guion, sin contar ──────────────────────
+    socket->allowUpTo(cycle.size());
+    std::stop_source warmUpStop;
+    std::thread      warmUp{[&] { receiver.run(warmUpStop.get_token()); }};
+    REQUIRE(waitUntil([&] {
+        drain();
+        return socket->delivered() == cycle.size();
+    }));
+    warmUpStop.request_stop();
+    warmUp.join();
+
+    alloc_probe::reset();
+    const auto before = receiver.stats().received;
+
+    // ── Medicion ────────────────────────────────────────────────────────────
+    socket->allowUpTo(socket->total());
+    std::stop_source measuredStop;
+    std::thread      measured{[&] {
+        alloc_probe::counting = true;
+        receiver.run(measuredStop.get_token());
+        alloc_probe::counting = false;
+    }};
+    REQUIRE(waitUntil([&] {
+        drain();
+        return socket->delivered() == socket->total();
+    }));
+    measuredStop.request_stop();
+    measured.join();
+    drain();
+
+    const auto datagrams   = receiver.stats().received - before;
+    const auto allocations = alloc_probe::count();
+
+    WARN("STEADY origenes: " << datagrams << " datagramas de 10 origenes (8 registrados, 2 sin "
+                             << "sitio) con " << allocations << " asignaciones en T1  ["
+                             << alloc_probe::describeSizes() << "]");
+
+    REQUIRE(datagrams >= 10'000);
+    REQUIRE(receiver.sources().size() == pw::net::kMaxSources);
+    REQUIRE(allocations == 0);
+    REQUIRE(pool.inUse() == 0);
 }
 
 TEST_CASE("La instrumentacion detecta una asignacion de verdad",

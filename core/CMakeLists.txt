@@ -63,6 +63,8 @@ pw_target_warnings(pw_mem)
 add_library(pw_net STATIC
     src/net/endpoint.cpp
     src/net/socket_error.cpp
+    src/net/source_registry.cpp
+    src/net/datagram_size_counts.cpp
 )
 add_library(pw::net ALIAS pw_net)
 target_include_directories(pw_net PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")

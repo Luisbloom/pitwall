@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Arquitectura"
 subtitle: "Aplicación de escritorio Windows: componentes, fronteras, concurrencia y flujo de eventos"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
-date: "2026-09-12"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-ARC-004"
 ---
@@ -108,11 +108,14 @@ sirven por mapeo de nombre de host virtual del WebView2 a la carpeta de recursos
 Que ambas implementen la misma interfaz es lo que hace realidad F5. No es un detalle de pruebas: es una decisión arquitectónica.
 
 ```cpp
+// core/include/pw/net/received_datagram.hpp — lo que T1 pone en Qraw y Qrec
 struct ReceivedDatagram {
-    std::span<const std::byte> bytes;   // vista sobre el buffer del pool
-    std::uint64_t              recvTimeNs;   // reloj monótono
-    SourceEndpoint             origin;
+    mem::BufferHandle handle{};                      // referencia al buffer del pool (16 B)
+    std::uint64_t     recvTimeNs{0};                 // reloj monótono, al volver recvfrom (RF-007)
+    Ipv4Endpoint      origin{};                      // IP y puerto exactos del emisor (RF-009)
+    SourceIndex       source{kUnregisteredSource};   // índice estable en SourceRegistry (F1.1-09)
 };
+static_assert(sizeof(ReceivedDatagram) == 32);
 
 class IDatagramSource {
 public:
@@ -121,6 +124,20 @@ public:
     virtual void stop() = 0;
 };
 ```
+
+*(v1.3: el esquema anterior mostraba un `std::span` de bytes y un `SourceEndpoint`; lo que existe es lo
+de arriba.)* Los campos de `ReceivedDatagram`:
+
+| Campo | Qué es |
+|---|---|
+| `handle` | Referencia contada al buffer del pool. Los **bytes no viajan en el elemento**: se leen con `pool.bytes(handle)`, y su longitud útil con `pool.payloadSize(handle)`, para que no haya dos copias del mismo número |
+| `recvTimeNs` | Marca monótona tomada en cuanto `recvfrom` devuelve, antes de cualquier otro trabajo |
+| `origin` | El endpoint **exacto** del emisor, siempre presente |
+| `source` | Índice **estable** del origen en `SourceRegistry` (0..7) mientras viva el receptor. `kUnregisteredSource` significa que la tabla de orígenes estaba **llena** cuando apareció ese emisor; el endpoint exacto sigue en `origin` |
+
+`source` ocupa un byte del relleno que el struct ya tenía: el elemento de cola sigue midiendo **32 B**,
+comprobado con `static_assert`. Tabla de orígenes y su política de tabla llena: `06-REALTIME-PIPELINE.md`
+§2.2.2.
 
 ### 3.2. `protocol` — Structs por formato
 

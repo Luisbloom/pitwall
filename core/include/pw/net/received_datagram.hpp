@@ -9,6 +9,10 @@
 //                base del replay fiel y de la medicion de latencia.
 //   origin       IP y puerto del emisor (RF-009). Resuelve el caso real de dos
 //                emisores en el mismo puerto.
+//   source       indice de ese origen en la tabla de T1 (F1.1-09). Es un byte
+//                que cabe en el relleno que ya dejaba el struct: sigue midiendo
+//                32 B. kUnregisteredSource si la tabla estaba llena; el origen
+//                exacto sigue estando en `origin`.
 //
 // Los BYTES no viajan aqui: viajan en el buffer del pool, y el handle es lo que
 // da acceso a ellos. El tamano util tambien vive en el pool
@@ -24,6 +28,7 @@
 #include "pw/mem/buffer_pool.hpp"
 #include "pw/mem/spsc_ring.hpp"
 #include "pw/net/endpoint.hpp"
+#include "pw/net/source_registry.hpp"
 
 namespace pw::net {
 
@@ -31,7 +36,11 @@ struct ReceivedDatagram {
     mem::BufferHandle handle{};
     std::uint64_t     recvTimeNs{0};
     Ipv4Endpoint      origin{};
+    SourceIndex       source{kUnregisteredSource};
 };
+
+static_assert(sizeof(ReceivedDatagram) == 32,
+              "el indice de origen debe caber en el relleno: el elemento de cola no crece");
 
 static_assert(std::is_trivially_copyable_v<ReceivedDatagram>,
               "ReceivedDatagram viaja por colas sin bloqueos: debe ser trivialmente copiable");

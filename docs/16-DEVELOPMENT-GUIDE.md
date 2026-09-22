@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Guía de desarrollo"
 subtitle: "De cero a un sistema funcionando: herramientas, módulos, pruebas, ejecución y depuración"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-DEV-016"
 ---
@@ -464,7 +464,32 @@ cd ui && npm run typecheck && npm run test && cd ..
 - [ ] La documentación afectada está actualizada
 - [ ] Si cambia un struct del protocolo, los fixtures se han regenerado y el diff se ha revisado a mano
 
-### 12.3. Documentación
+### 12.3. Normas de Git
+
+Son permanentes y se aplican a todo el repositorio.
+
+**Autoría.** Los commits pertenecen **únicamente** a la identidad configurada en Git por el autor del
+proyecto. Una herramienta de IA puede ayudar, revisar, escribir código y proponer mensajes de commit,
+pero **nunca** figura como *Author*, *Committer* ni coautora. Está prohibida **cualquier** atribución
+de autoría a una IA, en particular trailers del tipo `Co-Authored-By: <herramienta de IA>` o
+cualquier otro equivalente, sea cual sea la herramienta.
+
+**Commits.**
+
+- Pequeños y coherentes: **un commit por bloque lógico** de trabajo, no por fichero ni por día.
+- Antes de cada commit: revisar el diff completo, ejecutar las pruebas, actualizar la documentación
+  afectada y comprobar `git status` (sin ficheros inesperados ni restos de pruebas).
+- No se hacen commits automáticos: sólo cuando el bloque ha sido revisado y el autor lo autoriza.
+- Comprobar la autoría antes de publicar: `git show -s --format=fuller HEAD`.
+
+**Publicación.**
+
+- No se hace push de trabajo no revisado.
+- Si hay que reescribir historia ya publicada, **sólo** con `git push --force-with-lease`. Nunca con
+  `git push --force`: `--force-with-lease` falla si el remoto ha cambiado desde la última lectura, y
+  así no se pisa trabajo ajeno sin verlo.
+
+### 12.4. Documentación
 
 ```bash
 cd tools

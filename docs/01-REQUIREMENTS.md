@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Documento de Requisitos de Software"
 subtitle: "Plataforma de telemetría e ingeniería de carrera para EA SPORTS F1 25 y F1 25: 2026 Season Pack"
-version: "1.2"
+version: "1.3"
 status: "Aprobado para desarrollo"
-date: "2026-09-12"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-SRS-001"
 ---
@@ -1846,27 +1846,48 @@ Investigación resumida. **No sustituye a asesoramiento jurídico.**
 
 ### 27.2. Métricas internas obligatorias
 
-| Métrica | Tipo | Etiquetas |
-|---|---|---|
-| `udp_packets_received_total` | contador | `format`, `packet_id` |
-| `udp_packets_invalid_total` | contador | `reason` (`truncated`, `bad_size`, `unknown_format`, `unknown_id`, `unknown_version`) |
-| `udp_packets_by_type` | contador | `packet_id` |
-| `udp_bytes_received_total` | contador | — |
-| `udp_datagrams_per_second` | medidor | `packet_id` |
-| `udp_estimated_loss_total` | contador | derivado de huecos de `overallFrameIdentifier` |
-| `decoder_errors_total` | contador | `format`, `packet_id` |
-| `decode_duration_ns` | histograma | `packet_id` |
-| `pipeline_queue_depth` | medidor | `queue` |
-| `pipeline_dropped_total` | contador | `queue`, `reason` |
-| `transport_connected` | medidor | 0 o 1: sólo la ventana propia |
-| `transport_messages_sent_total` | contador | `channel` |
-| `transport_coalesced_total` | contador | `channel` |
-| `transport_rejected_total` | contador | `reason` (token inválido, origen ajeno) |
-| `samples_persisted_total` | contador | `entity` |
-| `recorder_queue_depth` | medidor | — |
-| `recorder_bytes_written_total` | contador | `compressed`, `raw` |
-| `end_to_end_latency_ms` | histograma | — |
-| `session_active` | medidor | `format`, `session_type` |
+La columna *Estado* distingue lo que ya está conectado en el código de lo que la tabla exige a una
+fase posterior: ✅ implementada · ◐ parcial · ⏳ planificada.
+
+| Métrica | Tipo | Etiquetas | Estado |
+|---|---|---|---|
+| `udp_packets_received_total` | contador | `format`, `packet_id` | ◐ Contador global ✅ F1.1; etiquetas `format` y `packet_id` ⏳ F1.2 (requieren decodificador) |
+| `udp_packets_invalid_total` | contador | `reason`: del receptor `truncated`, `oversized`, `socket_error`; del decodificador `bad_size`, `unknown_format`, `unknown_id`, `unknown_version` | ◐ Causas del receptor ✅ F1.1; causas del decodificador ⏳ F1.2 |
+| `udp_packets_by_type` | contador | `packet_id` | ⏳ Requiere decodificador |
+| `udp_bytes_received_total` | contador | — | ✅ F1.1 |
+| `udp_packets_by_source_total` | contador | `source` (`a.b.c.d:puerto`, o `unregistered` si la tabla de orígenes estaba llena) | ✅ F1.1 (ver nota) |
+| `udp_bytes_by_source_total` | contador | `source` (ídem) | ✅ F1.1 (ver nota) |
+| `udp_packets_by_size_total` | contador | `bytes` (longitud exacta observada) | ✅ F1.1 (ver nota) |
+| `udp_pool_exhaustion_total` | contador | — | ✅ F1.1. Veces que T1 pidió un buffer y no había ninguno libre: un **estado**, no un recuento de datagramas perdidos |
+| `udp_datagrams_delivered_total` | contador | — | ✅ F1.1. Datagramas encolados en al menos una de las colas `Qraw`/`Qrec` |
+| `udp_socket_receive_buffer_bytes` | medidor | — | ✅ F1.1. `SO_RCVBUF` **concedido** por el sistema, no el solicitado (RNF-026) |
+| `udp_datagrams_per_second` | medidor | `packet_id` | ⏳ |
+| `udp_estimated_loss_total` | contador | derivado de huecos de `overallFrameIdentifier` | ⏳ |
+| `decoder_errors_total` | contador | `format`, `packet_id` | ⏳ |
+| `decode_duration_ns` | histograma | `packet_id` | ⏳ |
+| `pipeline_queue_depth` | medidor | `queue` | ⏳ |
+| `pipeline_dropped_total` | contador | `queue`, `reason` | ◐ `queue=raw` y `queue=rec` con `reason=full` ✅ F1.1; el resto de colas ⏳ |
+| `transport_connected` | medidor | 0 o 1: sólo la ventana propia | ⏳ |
+| `transport_messages_sent_total` | contador | `channel` | ⏳ |
+| `transport_coalesced_total` | contador | `channel` | ⏳ |
+| `transport_rejected_total` | contador | `reason` (token inválido, origen ajeno) | ⏳ |
+| `samples_persisted_total` | contador | `entity` | ⏳ |
+| `recorder_queue_depth` | medidor | — | ⏳ |
+| `recorder_bytes_written_total` | contador | `compressed`, `raw` | ⏳ |
+| `end_to_end_latency_ms` | histograma | — | ⏳ |
+| `session_active` | medidor | `format`, `session_type` | ⏳ |
+
+**Métricas por origen y por tamaño** *(v1.3, F1.1-08/F1.1-09)*. Las tres métricas `*_by_source_total`
+y `*_by_size_total` **no se actualizan a través de `MetricsRegistry`**: sus etiquetas sólo se conocen al
+recibir, y registrar una métrica nueva toma un mutex y asigna, cosa que T1 no puede hacer (RNF-013).
+T1 incrementa contadores **preasignados** (`SourceRegistry`, `DatagramSizeCounts`) y las
+`MetricSample` etiquetadas se construyen **fuera del camino caliente**, con
+`UdpReceiver::appendMetricSamples()`. La integración con *UDP Diagnostics* y con el volcado de la
+aplicación consumirá esas muestras más adelante. Detalle en `06-REALTIME-PIPELINE.md` §2.2.2.
+
+**Cobertura de RF-008.** No está completo: las etiquetas `format` y `packet_id` de
+`udp_packets_received_total` requieren el decodificador y quedan para F1.2. Estado por tarea en
+`11-IMPLEMENTATION-PLAN.md`, F1.1.
 
 ### 27.3. Requisitos
 

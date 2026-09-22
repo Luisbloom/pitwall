@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Plan de implementación"
 subtitle: "Fases, tareas, dependencias y Definition of Done"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-22"
 author: "Luis Miguel"
 docid: "PW-IMP-011"
 ---
@@ -148,6 +148,20 @@ depurar todo lo demás.
 | F1.1-12 | Apagado ordenado | Cierre del socket, drenaje, unión de hilos | RNF-055 |
 | F1.1-13 | Herramienta `pw-listen` | Utilidad mínima: escucha e imprime estadísticas por consola | — |
 | F1.1-14 | Prueba de carga sintética | Generador que emite a 1000 datagramas/s | RNF-001 |
+
+**Estado de F1.1-08 y F1.1-09 frente a sus requisitos** *(v1.2)*:
+
+| Tarea / requisito | Estado |
+|---|---|
+| F1.1-08 | **Completa** para el alcance de esta fase |
+| RF-008 · por tamaño | ✅ F1.1 |
+| RF-008 · por origen | ✅ F1.1 |
+| RF-008 · inválidos por causa del receptor | ✅ F1.1 (`truncated`, `oversized`, `socket_error`) |
+| RF-008 · por `format` | ⏳ F1.2: requiere el decodificador |
+| RF-008 · por `packetId` | ⏳ F1.2: requiere el decodificador |
+| F1.1-09 | **Completa** para el registro y la identidad del origen |
+| RF-009 · registro e identidad (IP + puerto, índice estable) | ✅ F1.1 |
+| RF-009 · filtro por origen | ⏳ F2.4, según la hoja de ruta actual |
 
 ### DoD de F1.1
 

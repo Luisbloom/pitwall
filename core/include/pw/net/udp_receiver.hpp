@@ -54,11 +54,14 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "pw/core/result.hpp"
 #include "pw/core/time.hpp"
 #include "pw/mem/buffer_pool.hpp"
+#include "pw/net/datagram_size_counts.hpp"
 #include "pw/net/received_datagram.hpp"
+#include "pw/net/source_registry.hpp"
 #include "pw/net/udp_socket.hpp"
 #include "pw/obs/logging.hpp"
 #include "pw/obs/metrics.hpp"
@@ -91,6 +94,7 @@ enum class ReceiverEvent : std::uint8_t {
     QueueRecFull,    ///< Qrec llena: descarte del mas nuevo
     SocketFailure,   ///< fallo del socket que no es espera vencida
     SocketClosed,    ///< el socket se cerro y el bucle termina
+    SourceTableFull, ///< aparecio un origen nuevo y la tabla de origenes estaba llena
     Count
 };
 
@@ -118,6 +122,11 @@ enum class ReceiverEvent : std::uint8_t {
         return "fallo al recibir del socket";
     case ReceiverEvent::SocketClosed:
         return "socket cerrado: el receptor termina";
+    case ReceiverEvent::SourceTableFull:
+        return "tabla de origenes llena: los datagramas de origenes nuevos se siguen recibiendo y "
+               "entregando, pero se cuentan juntos como origen no registrado. Los origenes ya "
+               "registrados conservan su indice. Mas de 8 emisores distintos hacia el mismo "
+               "puerto suele indicar trafico ajeno al juego";
     case ReceiverEvent::Count:
         break;
     }
@@ -179,6 +188,9 @@ public:
         , qrecDroppedCounter_{metrics.counter("pipeline_dropped_total", "queue=rec,reason=full")}
         , deliveredCounter_{metrics.counter("udp_datagrams_delivered_total")}
         , receiveBufferGauge_{metrics.gauge("udp_socket_receive_buffer_bytes")}
+        // Un contador por cada longitud que cabe en un buffer del pool: se
+        // reserva aqui, en el arranque, y T1 solo incrementa.
+        , sizeCounts_{pool.bufferBytes()}
     {
     }
 
@@ -287,6 +299,14 @@ public:
             receivedCounter_.inc();
             bytesCounter_.inc(size);
 
+            // Por origen y por tamano (F1.1-08, F1.1-09), ANTES de validar: la
+            // longitud y el emisor de un datagrama invalido son justo la pista
+            // de por que lo es. Busqueda lineal en 64 B e incrementos; nada mas.
+            const auto source = sources_.resolve(origin);
+            if (source == kUnregisteredSource) { noteEvent(ReceiverEvent::SourceTableFull); }
+            sources_.record(source, size);
+            sizeCounts_.record(size);
+
             // 3. La unica validacion de esta etapa: la longitud (RF-004).
             if (size < config_.minDatagramBytes) {
                 truncated_.fetch_add(1, std::memory_order_relaxed);
@@ -297,7 +317,7 @@ public:
             }
 
             pool_.setPayloadSize(handle, size);
-            distribute(ReceivedDatagram{handle, arrivalNs, origin});
+            distribute(ReceivedDatagram{handle, arrivalNs, origin, source});
 
             // 4. T1 suelta SU referencia. Sin esto, el buffer no vuelve nunca.
             pool_.release(handle);
@@ -375,6 +395,25 @@ public:
                                 qrawDropped_.load(std::memory_order_relaxed),
                                 qrecDropped_.load(std::memory_order_relaxed),
                                 delivered_.load(std::memory_order_relaxed)};
+    }
+
+    /// Tabla de origenes (F1.1-09). Solo lectura desde fuera de T1.
+    [[nodiscard]] const SourceRegistry& sources() const noexcept { return sources_; }
+
+    /// Contadores por tamano (F1.1-08). Solo lectura desde fuera de T1.
+    [[nodiscard]] const DatagramSizeCounts& sizeCounts() const noexcept { return sizeCounts_; }
+
+    /// Anade las metricas por origen y por tamano a una instantanea del registro.
+    ///
+    /// No viven en el MetricsRegistry porque sus etiquetas -el texto del
+    /// origen, la longitud- solo se conocen al recibir, y registrar una metrica
+    /// nueva toma un mutex y asigna: eso no puede ocurrir en T1. Asi que T1
+    /// cuenta en tablas preasignadas y el texto se construye aqui. Asigna: NO se
+    /// llama desde T1.
+    void appendMetricSamples(std::vector<obs::MetricSample>& out) const
+    {
+        pw::net::appendMetricSamples(sources_, out);
+        pw::net::appendMetricSamples(sizeCounts_, out);
     }
 
 private:
@@ -477,6 +516,10 @@ private:
     obs::Gauge&   receiveBufferGauge_;
 
     std::size_t effectiveReceiveBufferBytes_{0};
+
+    /// Escritas solo por T1; preasignadas al construir.
+    SourceRegistry     sources_;
+    DatagramSizeCounts sizeCounts_;
 
     std::atomic<std::uint64_t> received_{0};
     std::atomic<std::uint64_t> bytes_{0};
