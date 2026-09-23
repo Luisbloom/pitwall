@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.7"
+version: "1.8"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -405,7 +405,10 @@ tras el `join`) siguen el mismo orden. La rama POSIX no se ha validado todavía 
 
 **Alcance.** Esto es la parte de adquisición de RNF-055. El drenaje real por T2/T3, el cierre de la
 captura, la persistencia, el orden global de `Core` (`09-BACKEND-PLAN.md` §5), RF-629 desde la
-ventana y `Ctrl+C` de extremo a extremo (`pw-listen`, F1.1-13) llegan en sus fases.
+ventana llegan en sus fases. `Ctrl+C` de extremo a extremo lo implementa `pw-listen` (F1.1-13): el
+manejador del sistema **sólo marca una bandera**, y el hilo de control es quien llama a
+`request_stop()` y ejecuta este mismo orden. La comprobación con el juego real sigue siendo manual
+(`16-DEVELOPMENT-GUIDE.md` §13.3).
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Guía de desarrollo"
 subtitle: "De cero a un sistema funcionando: herramientas, módulos, pruebas, ejecución y depuración"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -88,7 +88,8 @@ Dos comprobaciones: que el núcleo escucha, y que la ventana abre.
 ```bash
 # 1. El núcleo, sin interfaz
 cmake --build --preset debug --target pw-listen
-./build/debug/bin/pw-listen --port 20777
+./build/debug/bin/pw-listen --port 20777            # juego en este mismo PC
+./build/debug/bin/pw-listen --bind 0.0.0.0 --port 20777   # consola u otro PC de la LAN
 
 # 2. La aplicación completa
 cd ui && npm run build && cd ..
@@ -96,8 +97,10 @@ cmake --build --preset debug --target PitWall
 ./build/debug/bin/PitWall.exe
 ```
 
-La primera debe imprimir `Escuchando en 0.0.0.0:20777`. Si el juego está emitiendo, aparecerá un
-contador creciente.
+La primera debe imprimir `pw-listen — escuchando en 127.0.0.1:20777`, porque **el `bind` por defecto
+es `127.0.0.1`** (`net.bind`). Para recibir de otra máquina hay que pedir `--bind 0.0.0.0`
+explícitamente. Si el juego está emitiendo, aparece una línea por segundo con el estado, el ritmo y
+los contadores, y `Ctrl+C` la detiene con un resumen final.
 
 La segunda debe abrir **una ventana propia** con la interfaz dentro, y estar ya escuchando sin que
 nadie pulse nada. Si se abriera un navegador, algo está mal configurado.
@@ -513,6 +516,33 @@ Lo que no se puede automatizar, con lista de comprobación para que al menos sea
 - [ ] Nada distrae ni parpadea durante la conducción
 - [ ] Las cifras se leen a 1 m de distancia
 - [ ] La latencia se percibe como instantánea
+
+### 13.3. Sesión con `pw-listen` y el juego real (F1.1-13)
+
+`pw-listen` no decodifica nada: sólo demuestra que los bytes entran bien. Para la referencia de
+~415 datagramas/s, **el juego debe estar a 60 Hz**; a 20 Hz la tasa será menor y eso no es un fallo.
+
+- [ ] `cmake --build --preset release --target pw-listen`
+- [ ] Arrancar `pw-listen --port 20777` (o `--bind 0.0.0.0 --port 20777` para consola/LAN)
+- [ ] En el juego: *Settings → Telemetry*, UDP activado, IP del PC, puerto 20777, **60 Hz**
+- [ ] Entrar en una sesión: el estado pasa de `escuchando` a `recibiendo`
+- [ ] El ritmo ronda los **415 pkt/s** (referencia, no igualdad exacta) y ~0,40 MiB/s
+- [ ] Un solo origen, con la `IP:puerto` esperada
+- [ ] Tamaños observados coherentes con `03-UDP-PROTOCOL.md` §3 (el mayor, 1470 B < 2048 B de buffer)
+- [ ] `pool_agotado=0`, `qraw_drop=0`, `qrec_drop=0`, `truncados=0`, `oversized=0`
+- [ ] Salir de la sesión o cerrar el juego: el estado pasa a `inactivo` tras el silencio
+- [ ] Volver a emitir: vuelve a `recibiendo`
+- [ ] `Ctrl+C`: imprime el resumen, `buffers en uso al terminar: 0` y sale con código 0
+
+### 13.4. Recepción desde la LAN (DoD de F1.1)
+
+- [ ] `pw-listen --bind 0.0.0.0 --port 20777` en el PC
+- [ ] El emisor (consola u otro PC) apunta a la **IP del PC**, no a `127.0.0.1`
+- [ ] Llegan datagramas y el origen mostrado es el del emisor
+- [ ] Si no llega nada: cortafuegos de Windows, IP equivocada o el juego emitiendo a otro puerto
+
+> Que el `bind` a `0.0.0.0` funcione **no** demuestra que el cortafuegos y la LAN estén bien: eso es
+> justo lo que comprueba esta prueba manual.
 
 ### 13.2. Configuración en consola (al implementar RF-003)
 

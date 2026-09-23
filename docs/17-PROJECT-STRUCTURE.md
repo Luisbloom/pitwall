@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Estructura del proyecto"
 subtitle: "Árbol del repositorio con explicación de cada carpeta"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -78,7 +78,10 @@ pitwall/
 │   │   ├── PitWall/             EJECUTABLE DE ESCRITORIO (shell + núcleo)
 │   │   └── pitwall-cli/         mismo núcleo SIN interfaz: pruebas, lotes, CI en Linux
 │   └── tools/                   ejecutables auxiliares
-│       ├── pw-listen/           escucha e imprime estadísticas
+│       ├── pw-listen/           escucha e imprime estadísticas (F1.1-13)
+│       │   ├── main.cpp                argumentos, señal y código de salida
+│       │   ├── listen_app.hpp/.cpp     la lógica, probada sin lanzar el proceso
+│       │   └── stop_signal_*.cpp       adaptadores de Ctrl+C / SIGINT
 │       ├── pw-capture/          info, verify, extract, slice, anonymize, replay…
 │       └── pw-gen/              generador sintético de casos degradados
 │

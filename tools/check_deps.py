@@ -65,6 +65,9 @@ ALLOWED: dict[str, set[str]] = {
         "normalize", "net", "state", "recorder", "persistence", "transport",
         "processors",
     },
+    # Ejecutables auxiliares (17-PROJECT-STRUCTURE.md 3.4): pw-listen y los que
+    # vengan. Usan el nucleo, nadie depende de ellos, y no conocen el shell.
+    "tool":        {"core", "obs", "config", "mem", "net", "proto", "decoder", "recorder"},
     # El unico modulo especifico de Windows. Nadie depende de el.
     "shell": {
         "core", "obs", "config", "domain", "state", "transport", "app",
@@ -91,11 +94,26 @@ WINDOWS_ALLOWED: set[str] = {"shell"}
 #       SetThreadPriority para el hilo de recepcion. Solo el fichero
 #       thread_priority_win32.cpp. windows.h entra porque processthreadsapi.h
 #       no compila sola; sigue prohibida en el resto de pw::net.
+#   tool . senal de parada (F1.1-13)
+#       SetConsoleCtrlHandler para Ctrl+C. Solo el fichero
+#       stop_signal_win32.cpp; el resto de pw-listen no ve Windows.
 WINDOWS_HEADER_EXCEPTIONS: dict[str, list[tuple[re.Pattern[str], set[str]]]] = {
     "net": [
         (re.compile(r"_win32\.(cpp|hpp)$"), {"winsock2.h", "ws2tcpip.h"}),
         (re.compile(r"^thread_priority_win32\.cpp$"), {"windows.h", "processthreadsapi.h"}),
     ],
+    "tool": [
+        (re.compile(r"^stop_signal_win32\.cpp$"), {"windows.h"}),
+    ],
+}
+
+# Cabeceras de senales POSIX. Un manejador de senal solo puede tocar un
+# sig_atomic_t, asi que su uso se acota igual que el de Windows: un unico
+# adaptador por modulo, declarado aqui.
+SIGNAL_HEADERS = re.compile(r"^(csignal|signal\.h)$", re.IGNORECASE)
+
+SIGNAL_HEADER_EXCEPTIONS: dict[str, list[re.Pattern[str]]] = {
+    "tool": [re.compile(r"^stop_signal_posix\.cpp$")],
 }
 
 # Cabeceras que delatan dependencia de Windows.
@@ -142,6 +160,9 @@ def module_of(path: Path, root: Path) -> str | None:
     # core/apps/<lo que sea>/...  -> se comporta como app
     if len(parts) >= 2 and parts[0] == "core" and parts[1] == "apps":
         return "app"
+    # core/tools/<herramienta>/...  -> ejecutable auxiliar
+    if len(parts) >= 2 and parts[0] == "core" and parts[1] == "tools":
+        return "tool"
     return None
 
 
@@ -159,6 +180,12 @@ def _windows_exception(module: str, path: Path, header: str) -> bool:
         if pattern.search(path.name) and header.lower() in allowed_headers:
             return True
     return False
+
+
+def _signal_exception(module: str, path: Path) -> bool:
+    """Cierto si este fichero concreto puede incluir cabeceras de senales."""
+    return any(pattern.search(path.name)
+               for pattern in SIGNAL_HEADER_EXCEPTIONS.get(module, []))
 
 
 def check_file(path: Path, root: Path) -> list[Violation]:
@@ -207,6 +234,18 @@ def check_file(path: Path, root: Path) -> list[Violation]:
                 )
             )
 
+        # Regla 2b: cabeceras de senales POSIX.
+        if SIGNAL_HEADERS.match(header) and not _signal_exception(module, path):
+            violations.append(
+                Violation(
+                    path,
+                    number,
+                    f"el modulo '{module}' incluye la cabecera de senales '{include}'. "
+                    f"Solo los adaptadores declarados en SIGNAL_HEADER_EXCEPTIONS pueden "
+                    f"hacerlo: un manejador de senal solo puede tocar un sig_atomic_t.",
+                )
+            )
+
         # Regla 1: grafo de modulos.
         target = included_module(include)
         if target is None or target == module:
@@ -231,7 +270,8 @@ def check_file(path: Path, root: Path) -> list[Violation]:
 
 
 def iter_sources(root: Path):
-    for base in (root / "core" / "src", root / "core" / "include", root / "core" / "apps"):
+    for base in (root / "core" / "src", root / "core" / "include", root / "core" / "apps",
+                 root / "core" / "tools"):
         if not base.is_dir():
             continue
         for path in sorted(base.rglob("*")):

@@ -80,6 +80,7 @@ endif()
 pw_target_warnings(pw_net)
 
 add_subdirectory(apps)
+add_subdirectory(tools)
 
 if(PW_BUILD_TESTS)
     add_subdirectory(tests)
