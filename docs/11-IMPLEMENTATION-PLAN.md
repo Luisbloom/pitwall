@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de implementación"
 subtitle: "Fases, tareas, dependencias y Definition of Done"
-version: "1.4"
+version: "1.5"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -177,7 +177,21 @@ depurar todo lo demás.
 | Cierre de la captura y persistencia | ⏳ F1.4 y persistencia |
 | Orden global en `Core` / `ThreadGroup` | ⏳ `pw::app` |
 | RF-629, cierre desde la ventana | ⏳ F1.6b |
-| `Ctrl+C` de extremo a extremo | ⏳ F1.1-13 (`pw-listen`) |
+| `Ctrl+C` de extremo a extremo | ✅ F1.1-13; queda la comprobación manual |
+
+**Estado de F1.1-13** *(v1.5)*:
+
+| Parte | Estado |
+|---|---|
+| `pw-listen` escucha, drena Qraw/Qrec e imprime estadísticas | ✅ F1.1 |
+| Tres hilos: control, T1 y drenaje (consumidor único de las dos colas) | ✅ F1.1 |
+| `Ctrl+C` (`SetConsoleCtrlHandler`) marca una bandera; el apagado sigue el orden de F1.1-12 | ✅ F1.1 |
+| Adaptador POSIX con `sigaction` | ◐ Compila; **sin validar en Linux real** |
+| Puerto ocupado: mensaje accionable y salida 3 | ✅ F1.1, con prueba automática |
+| DoD «`pw-listen` muestra un flujo estable con el juego emitiendo» | ⏳ **prueba manual pendiente** (`16` §13.3) |
+| DoD «bind `0.0.0.0` recibe de otra máquina de la LAN» | ⏳ **prueba manual pendiente** |
+| DoD «`Ctrl+C` cierra limpiamente» | ◐ Automática sobre la costura de parada; el Ctrl+C real, manual |
+| Generador de 1000 datagramas/s | ⏳ F1.1-14: `pw-listen` sólo recibe |
 
 ### DoD de F1.1
 

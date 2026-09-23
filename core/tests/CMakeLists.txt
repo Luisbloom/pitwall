@@ -70,6 +70,13 @@ pw_add_test_executable(pw_net_tests
         unit/net/test_receiver_shutdown.cpp
     LIBRARIES pw_net pw_config)
 
+# Herramientas auxiliares (F1.1-13): la logica de pw-listen, sin lanzar el
+# proceso y sin generar un Ctrl+C real.
+pw_add_test_executable(pw_tools_tests
+    SOURCES
+        unit/tools/test_listen_app.cpp
+    LIBRARIES pw_listen_app)
+
 # COMPILACION INSTRUMENTADA (F1.1-07, RNF-013): este ejecutable sustituye los
 # operadores globales de reserva de memoria para contar asignaciones en el hilo
 # del receptor. Vive aparte precisamente porque esa sustitucion es global.

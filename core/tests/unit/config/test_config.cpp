@@ -207,7 +207,10 @@ TEST_CASE("Los argumentos documentados se aceptan", "[config][cli]")
     REQUIRE(anyKey.value().net.poolSize == 32768);
 }
 
-TEST_CASE("--help y --version se distinguen de un error", "[config][cli]")
+// El nombre NO puede empezar por «--»: CTest lo pasa como argumento y Catch2
+// lo tomaria por una opcion suya, imprimiria su ayuda y saldria con 0 sin
+// ejecutar la prueba.
+TEST_CASE("Las opciones --help y --version se distinguen de un error", "[config][cli]")
 {
     const auto env = fakeEnv({});
 
