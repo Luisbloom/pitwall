@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Arquitectura"
 subtitle: "Aplicación de escritorio Windows: componentes, fronteras, concurrencia y flujo de eventos"
-version: "1.4"
+version: "1.5"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -117,13 +117,19 @@ struct ReceivedDatagram {
 };
 static_assert(sizeof(ReceivedDatagram) == 32);
 
+// Contrato de ciclo de vida de una fuente (F1.1-12): la fuente NO crea hilos.
+// Su dueño la ejecuta en un hilo propio y la para con el stop_token.
 class IDatagramSource {
 public:
     virtual ~IDatagramSource() = default;
-    virtual void start(DatagramSink& sink) = 0;
-    virtual void stop() = 0;
+    virtual void run(std::stop_token stop) = 0;   // vuelve tras request_stop() o al cerrarse el socket
 };
 ```
+
+*(v1.5: la versión anterior describía `start(DatagramSink&)` / `stop()`; el contrato real es
+`run(std::stop_token)` ejecutado por un hilo externo. `UdpReceiver` lo cumple hoy sin heredar todavía
+de la interfaz, que llegará con su segunda implementación, `ReplaySource`, en F1.4. Orden de parada y
+precondición de `close()` en `06-REALTIME-PIPELINE.md` §2.4.)*
 
 *(v1.3: el esquema anterior mostraba un `std::span` de bytes y un `SourceEndpoint`; lo que existe es lo
 de arriba.)* Los campos de `ReceivedDatagram`:

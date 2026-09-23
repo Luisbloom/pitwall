@@ -70,6 +70,32 @@ public:
 
     Result<net::ReceivedBytes, net::ReceiveError> receive(const std::span<std::byte> buffer) override
     {
+        receiveCalls_.fetch_add(1, std::memory_order_release);
+        if (!open_.load(std::memory_order_acquire)) {
+            return Unexpected<net::ReceiveError>{net::ReceiveError{net::SocketErrorKind::Closed, 0}};
+        }
+        inReceive_.store(true, std::memory_order_release);
+        const auto result = receiveScripted(buffer);
+        inReceive_.store(false, std::memory_order_release);
+        return result;
+    }
+
+    /// Llamadas a receive() desde el arranque.
+    [[nodiscard]] std::uint64_t receiveCalls() const noexcept
+    {
+        return receiveCalls_.load(std::memory_order_acquire);
+    }
+
+    /// Veces que se llamo a close() mientras un receive() estaba en curso. El
+    /// diseno de parada exige que sea 0.
+    [[nodiscard]] std::uint64_t closesDuringReceive() const noexcept
+    {
+        return closesDuringReceive_.load(std::memory_order_acquire);
+    }
+
+private:
+    Result<net::ReceivedBytes, net::ReceiveError> receiveScripted(const std::span<std::byte> buffer)
+    {
         const auto position = next_.load(std::memory_order_relaxed);
         if (probe_ != nullptr && position < probes_.size()) { probes_[position] = probe_(); }
 
@@ -94,14 +120,21 @@ public:
         return net::ReceivedBytes{entry.size, entry.origin};
     }
 
+public:
     net::Ipv4Endpoint localEndpoint() const noexcept override { return {}; }
     Result<std::size_t, net::SocketError> sendTo(const net::Ipv4Endpoint&,
                                                  std::span<const std::byte>) override
     {
         return std::size_t{0};
     }
-    void close() noexcept override {}
-    bool isOpen() const noexcept override { return true; }
+    void close() noexcept override
+    {
+        if (inReceive_.load(std::memory_order_acquire)) {
+            closesDuringReceive_.fetch_add(1, std::memory_order_relaxed);
+        }
+        open_.store(false, std::memory_order_release);
+    }
+    bool isOpen() const noexcept override { return open_.load(std::memory_order_acquire); }
 
     /// Datagramas del guion ya entregados al receptor.
     [[nodiscard]] std::size_t delivered() const noexcept
@@ -140,6 +173,10 @@ private:
     std::atomic<std::size_t>                  next_{0};
     std::atomic<std::size_t>                  allowed_{static_cast<std::size_t>(-1)};
     std::atomic<std::uint64_t>                idlePolls_{0};
+    std::atomic<std::uint64_t>                receiveCalls_{0};
+    std::atomic<std::uint64_t>                closesDuringReceive_{0};
+    std::atomic<bool>                         inReceive_{false};
+    std::atomic<bool>                         open_{true};
 };
 
 } // namespace pw::test

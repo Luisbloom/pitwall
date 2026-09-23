@@ -187,7 +187,10 @@ struct UdpReceiverConfig {
     std::size_t   receiveBufferBytes{4 * 1024 * 1024};   ///< RNF-026
     std::size_t   minDatagramBytes{kMinDatagramBytes};   ///< RF-004
     /// Espera maxima de cada recvfrom. Acota cuanto tarda el bucle en ver la
-    /// senal de parada; no tiene ningun otro efecto.
+    /// senal de parada (F1.1-12): tras request_stop(), run() vuelve en como
+    /// mucho una espera mas la granularidad del temporizador del sistema. No
+    /// tiene ningun otro efecto. 0 NO es valido: sin espera acotada recvfrom
+    /// bloquea sin limite y la parada no se veria nunca; open() lo rechaza.
     std::uint32_t pollTimeoutMs{100};
     /// Espera cuando el pool esta agotado. Sin ella, el bucle giraria a plena
     /// CPU en un estado en el que ya no puede hacer nada util (RNF-010).
@@ -261,6 +264,17 @@ public:
     /// acotada. Un fallo aqui es de arranque y trae mensaje accionable.
     [[nodiscard]] Result<Ipv4Endpoint, SocketError> open()
     {
+        // F1.1-12: la parada acotada depende de la espera acotada. Se comprueba
+        // antes de tocar el socket. La restriccion es del RECEPTOR, que promete
+        // parar en tiempo acotado; IUdpSocket puede seguir admitiendo 0.
+        if (config_.pollTimeoutMs == 0) {
+            return Unexpected<SocketError>{SocketError{
+                SocketErrorKind::InvalidConfiguration, 0,
+                "pollTimeoutMs = 0 no es valido para el receptor: sin espera acotada recvfrom "
+                "bloquea sin limite y una parada solicitada no se veria hasta el siguiente "
+                "datagrama. Use un valor de al menos 1 ms; el valor por defecto es 100"}};
+        }
+
         Ipv4Endpoint endpoint;
         if (!Ipv4Endpoint::parse(config_.bindAddress, config_.port, endpoint)) {
             return Unexpected<SocketError>{SocketError{
@@ -315,6 +329,21 @@ public:
 
     /// El bucle de recepcion. Vuelve cuando se solicita la parada o cuando el
     /// socket se cierra.
+    ///
+    /// ── PARADA (F1.1-12) ────────────────────────────────────────────────────
+    ///
+    /// La senal se comprueba al PRINCIPIO de cada vuelta, nunca a mitad: tras
+    /// request_stop(), run() termina como mucho la vuelta en curso -una espera
+    /// acotada de pollTimeoutMs, o un datagrama- y vuelve. Parar no produce
+    /// ningun suceso: no es un error ni un cierre de socket.
+    ///
+    /// Al volver, T1 NO retiene ninguna referencia a buffers: cada vuelta suelta
+    /// la suya antes de volver a mirar la senal. Lo que quede en Qraw y Qrec es
+    /// de las colas, y lo drena su consumidor (o su dueno), nunca T1.
+    ///
+    /// El hilo y el stop_source son del llamante. Orden de parada:
+    ///   request_stop() -> join() -> close() o destruccion -> drenar las colas
+    ///   -> destruir colas y pool.
     void run(std::stop_token stop)
     {
         // 0. Prioridad del hilo (F1.1-11), UNA vez por llamada a run() y antes
@@ -400,6 +429,17 @@ public:
         }
     }
 
+    /// Cierra el socket. Idempotente.
+    ///
+    /// PRECONDICION: no puede ejecutarse a la vez que run(). Si run() corre en
+    /// otro hilo, hay que pedirle la parada y hacer join() ANTES de llamar a
+    /// close(). Cerrar desde otro hilo para despertar a T1 no es seguro ni
+    /// portable: el handle puede reutilizarse para otro socket mientras T1
+    /// todavia esta en select/poll o recvfrom. El diseno evita esa concurrencia
+    /// en vez de protegerla: no hay mutex ni handle atomico.
+    ///
+    /// La destruccion del receptor tiene la misma precondicion implicita: no se
+    /// destruye mientras otro hilo este dentro de run().
     void close() noexcept
     {
         if (socket_) { socket_->close(); }
@@ -630,6 +670,13 @@ private:
             // El bucle termina. No es silencio ni se confunde con el: el estado
             // se queda como estaba.
             noteEvent(ReceiverEvent::SocketClosed);
+            break;
+        case SocketErrorKind::Interrupted:
+            // Operacion interrumpida (EINTR: una senal llego a este hilo durante
+            // poll). No es un fallo ni un datagrama: ni socketErrors, ni
+            // SocketFailure, ni actividad, ni pausa. Se reintenta en la
+            // siguiente vuelta, que ademas vuelve a mirar la senal de parada.
+            checkSilence(nowNs);
             break;
         default:
             socketErrors_.fetch_add(1, std::memory_order_relaxed);

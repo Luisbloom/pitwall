@@ -67,6 +67,7 @@ pw_add_test_executable(pw_net_tests
         unit/net/test_source_registry.cpp
         unit/net/test_receiver_state.cpp
         unit/net/test_thread_priority.cpp
+        unit/net/test_receiver_shutdown.cpp
     LIBRARIES pw_net pw_config)
 
 # COMPILACION INSTRUMENTADA (F1.1-07, RNF-013): este ejecutable sustituye los

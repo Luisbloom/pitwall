@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de backend"
 subtitle: "Módulos C++20/23: shell de escritorio, decoders, estado, persistencia y transporte interno"
-version: "1.5"
+version: "1.6"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -468,15 +468,23 @@ public:
         return ep;
     }
 
-    /// RF-629: drenar colas, cerrar la captura en curso, liberar el socket.
-    void stop() { threads_.requestStopAndJoin(); recorder_.stop(); persistence_.flush(); }
+    /// RF-629 / RNF-055. DISEÑO FUTURO: las APIs exactas se implementarán en su
+    /// fase; el ORDEN es lo que queda fijado aquí. Parar todos los hilos a la
+    /// vez podría dejar elementos sin drenar, por eso se para por etapas:
+    void stop() {
+        stopProducersAndJoin();      // 1-2. T1 (o ReplaySource): request_stop + join. Ya no entra nada
+        drainAndStopConsumers();     // 3-4. T2/T3 vacían sus colas y SÓLO entonces paran y se unen
+        recorder_.stop();            // 5.   cerrar la captura en curso
+        persistence_.flush();        // 6.   finalizar la persistencia
+    }                                // 7.   liberar recursos: socket, colas y pool, en orden de destrucción
 
 private:
     const Config&                     cfg_;
     obs::Logger                       logger_;
     obs::Metrics                      metrics_;
     mem::BufferPool                   pool_;
-    mem::SpscRing<BufferHandle, 8192> qRaw_, qRec_;
+    net::RawDatagramQueue             qRaw_;   // SpscRing<ReceivedDatagram, 8192>
+    net::RecDatagramQueue             qRec_;   // ídem
     DecoderRegistry                   registry_;
     SessionStateEngine                state_;
     RawRecorder                       recorder_;

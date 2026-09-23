@@ -42,6 +42,7 @@ enum class SocketErrorKind : std::uint8_t {
     AddressNotAvailable, ///< la direccion no pertenece a esta maquina
     PermissionDenied,    ///< puertos < 1024, o cortafuegos
     InvalidAddress,      ///< la direccion de bind no es una IPv4 valida
+    InvalidConfiguration,///< un parametro del receptor no permite cumplir su contrato
     NotInitialized,      ///< la pila de red no arranco (solo Winsock)
     Closed,              ///< el socket esta cerrado
     Timeout,             ///< la espera acotada expiro sin datos: NO es un fallo
