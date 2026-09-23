@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de implementación"
 subtitle: "Fases, tareas, dependencias y Definition of Done"
-version: "1.5"
+version: "1.6"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -191,7 +191,21 @@ depurar todo lo demás.
 | DoD «`pw-listen` muestra un flujo estable con el juego emitiendo» | ⏳ **prueba manual pendiente** (`16` §13.3) |
 | DoD «bind `0.0.0.0` recibe de otra máquina de la LAN» | ⏳ **prueba manual pendiente** |
 | DoD «`Ctrl+C` cierra limpiamente» | ◐ Automática sobre la costura de parada; el Ctrl+C real, manual |
-| Generador de 1000 datagramas/s | ⏳ F1.1-14: `pw-listen` sólo recibe |
+| Generador de 1000 datagramas/s | ✅ F1.1-14: `pw-load`; `pw-listen` sólo recibe |
+
+**Estado de F1.1-14** *(v1.6)*:
+
+| Parte | Estado |
+|---|---|
+| `pw-load`: emisor UDP con ritmo por fecha límite, duración y tamaño configurables | ✅ F1.1 |
+| Payload preasignado, 0 asignaciones por datagrama, patrón sintético **que no es protocolo F1** | ✅ F1.1 |
+| Publica ritmo **objetivo y real**, duración real y periodos omitidos por el planificador | ✅ F1.1 |
+| Integración corta automática (< 1 s) contra `pw-listen`: 0 descartes, 0 agotamientos, `inUse` 0 | ✅ F1.1 |
+| **RNF-001: 1000 datagramas/s durante 30 min** | ⏳ **prueba manual pendiente** (`16` §13.5) |
+| 415 datagramas/s durante 1 h (`10` §8) | ⏳ otra validación, fuera de F1.1-14 |
+
+> La prueba automática **no** demuestra RNF-001: dura menos de un segundo. Sólo la ejecución manual
+> de 30 minutos lo hace, y su resultado se anotará con el alcance exacto de lo observado.
 
 ### DoD de F1.1
 

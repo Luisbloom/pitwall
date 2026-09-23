@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Guía de desarrollo"
 subtitle: "De cero a un sistema funcionando: herramientas, módulos, pruebas, ejecución y depuración"
-version: "1.3"
+version: "1.4"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -543,6 +543,48 @@ Lo que no se puede automatizar, con lista de comprobación para que al menos sea
 
 > Que el `bind` a `0.0.0.0` funcione **no** demuestra que el cortafuegos y la LAN estén bien: eso es
 > justo lo que comprueba esta prueba manual.
+
+### 13.5. Carga sintética a 1000 datagramas/s (RNF-001, F1.1-14)
+
+`pw-load` emite tráfico sintético —**no** paquetes de F1— para comprobar que el receptor aguanta
+**2,4× el pico real** del juego. Dos terminales:
+
+```bash
+cmake --build --preset release --target pw-listen pw-load
+
+# Terminal A: el receptor
+./build/release/bin/pw-listen --port 20777
+
+# Terminal B: la carga, 30 minutos
+./build/release/bin/pw-load --host 127.0.0.1 --port 20777 --rate 1000 --duration 1800
+```
+
+Al terminar, se contrastan **los dos resúmenes**:
+
+| De `pw-load` | De `pw-listen` |
+|---|---|
+| Enviados, fallos de envío | Recibidos, entregados |
+| Duración real | Truncados, oversized, errores de socket |
+| Ritmo objetivo frente a ritmo real | `qraw_drop`, `qrec_drop`, agotamientos del pool |
+| Periodos omitidos por el planificador | `buffers en uso al terminar` |
+
+**Criterio de F1.1-14:**
+
+- [ ] `qraw_drop` = 0 y `qrec_drop` = 0
+- [ ] `pool agotado` = 0
+- [ ] `errores de socket` = 0
+- [ ] `Ctrl+C` cierra limpio y `buffers en uso al terminar` = 0
+- [ ] El ritmo real de `pw-load` se acerca a los 1000/s pedidos; si no, se anota el real
+
+> **Cómo se redacta el resultado.** UDP no garantiza la entrega. Si enviados y recibidos coinciden,
+> lo que se escribe es «**0 pérdidas observadas en esta ejecución local controlada**», nunca «UDP no
+> perdió nada». Lo que sí se afirma sin matices es lo que depende de PitWall: **0 descartes
+> atribuibles a la aplicación**.
+
+> **Sobre el ritmo.** `pw-load` planifica por fecha límite absoluta, no durmiendo un periodo entre
+> envíos. Si el sistema suspende el hilo, recupera los periodos vencidos con un tope y, si el retraso
+> es grande, renuncia a ellos y los cuenta como **omitidos**. A ritmos altos la herramienta consume
+> un núcleo: es un emisor de prueba, no parte del producto.
 
 ### 13.2. Configuración en consola (al implementar RF-003)
 
