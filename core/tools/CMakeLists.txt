@@ -7,5 +7,8 @@
 #   pw-listen    escucha e imprime estadisticas (F1.1-13)
 #   pw-capture   verificar, recortar, anonimizar capturas (F1.4)
 #   pw-gen       generador sintetico de casos degradados (F1.1-14 y siguientes)
+#
+# common/ es la infraestructura que comparten: hoy, el adaptador de Ctrl+C.
 # ─────────────────────────────────────────────────────────────────────────────
+add_subdirectory(common)
 add_subdirectory(pw-listen)
