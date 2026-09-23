@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de implementación"
 subtitle: "Fases, tareas, dependencias y Definition of Done"
-version: "1.3"
+version: "1.4"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -162,6 +162,22 @@ depurar todo lo demás.
 | F1.1-09 | **Completa** para el registro y la identidad del origen |
 | RF-009 · registro e identidad (IP + puerto, índice estable) | ✅ F1.1 |
 | RF-009 · filtro por origen | ⏳ F2.4, según la hoja de ruta actual |
+
+**Estado de F1.1-12 frente a RNF-055** *(v1.4)*:
+
+| Parte | Estado |
+|---|---|
+| F1.1-12 | **Completa** en su alcance de adquisición (`06-REALTIME-PIPELINE.md` §2.4) |
+| T1 para en tiempo acotado (≈ una espera de `pollTimeoutMs`) | ✅ F1.1 |
+| `join` antes de `close`; socket liberado sin cierre concurrente | ✅ F1.1 |
+| T1 no retiene `BufferHandle` al salir; contrato de drenaje probado | ✅ F1.1 |
+| Una parada normal no produce sucesos de error | ✅ F1.1 |
+| **RNF-055 completo** | **Parcial** |
+| T2/T3 drenan realmente sus colas | ⏳ con T2 y T3 |
+| Cierre de la captura y persistencia | ⏳ F1.4 y persistencia |
+| Orden global en `Core` / `ThreadGroup` | ⏳ `pw::app` |
+| RF-629, cierre desde la ventana | ⏳ F1.6b |
+| `Ctrl+C` de extremo a extremo | ⏳ F1.1-13 (`pw-listen`) |
 
 ### DoD de F1.1
 

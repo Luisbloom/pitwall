@@ -9,6 +9,7 @@ const char* socketErrorName(const SocketErrorKind kind) noexcept
     case SocketErrorKind::AddressNotAvailable: return "address_not_available";
     case SocketErrorKind::PermissionDenied:    return "permission_denied";
     case SocketErrorKind::InvalidAddress:      return "invalid_address";
+    case SocketErrorKind::InvalidConfiguration: return "invalid_configuration";
     case SocketErrorKind::NotInitialized:      return "not_initialized";
     case SocketErrorKind::Closed:              return "closed";
     case SocketErrorKind::Timeout:             return "timeout";
@@ -26,6 +27,7 @@ const char* socketErrorAdvice(const SocketErrorKind kind) noexcept
     case SocketErrorKind::AddressNotAvailable: return "la direccion no pertenece a este equipo";
     case SocketErrorKind::PermissionDenied:    return "el sistema no permite escuchar ahi";
     case SocketErrorKind::InvalidAddress:      return "la direccion no es una IPv4 valida";
+    case SocketErrorKind::InvalidConfiguration: return "la configuracion del receptor no es valida";
     case SocketErrorKind::NotInitialized:      return "la pila de red no esta inicializada";
     case SocketErrorKind::Closed:              return "el socket no esta abierto";
     case SocketErrorKind::Timeout:             return "sin datagramas en la espera";

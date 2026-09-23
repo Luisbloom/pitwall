@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.5"
+version: "1.7"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -112,37 +112,57 @@ Así `recvfrom` nunca vence.
 ### 2.2. Bucle de recepción
 
 ```cpp
+// Pseudocódigo arquitectónico: el orden y las decisiones, no la implementación.
 void UdpReceiver::run(std::stop_token stop) {
-    setThreadName("pw-udp-rx");
-    raisePriorityAboveNormal();
+    raisePriorityAboveNormal();                   // §2.3, una vez por run()
 
-    while (!stop.stop_requested()) {
-        BufferHandle buf = pool_.acquire();          // preasignado, nunca asigna
-        if (!buf) {                                  // no hay donde recibir
-            metrics_.poolExhaustions++;              // es un ESTADO, no una pérdida
-            noteEvent(PoolExhausted);                // marcar bandera; NO registrar
-            backOffBriefly();                        // no girar a plena CPU
+    while (!stop.stop_requested()) {              // §2.4: la señal, al principio de la vuelta
+        BufferHandle buf = pool_.acquire();       // preasignado, nunca asigna
+        if (!buf.valid()) {                       // no hay donde recibir
+            poolExhaustions_++;                   // es un ESTADO, no una pérdida
+            noteEvent(PoolExhausted);             // marcar bandera; NO registrar
+            checkSilence(now()); backOffBriefly();
             continue;
         }
 
-        const auto n = socket_.receive(buf.span(), origin);   // espera acotada: §2.1.2
-        if (n <= 0) { pool_.release(buf); continue; }
+        auto received = socket_->receive(pool_.bytes(buf));   // espera acotada: §2.1.2
+        const auto t  = now();                    // ANTES de cualquier otra cosa
 
-        const auto t = monotonicNowNs();             // ANTES de cualquier otra cosa
+        if (!received) {                          // espera vencida, interrumpida, oversized,
+            handleReceiveError(received.error(), buf, t);   // fallo o cierre: §2.4
+            if (received.error().kind == Closed) { return; }
+            continue;                             // el buffer ya se soltó
+        }
 
-        metrics_.datagramsReceived++;
-        metrics_.bytesReceived += n;
+        const auto [n, origin] = received.value();
+        received_++; bytes_ += n;
+        noteActivity(t);                          // §2.2.3: se ha observado tráfico
+        const auto source = sources_.resolve(origin);        // §2.2.2, índice estable
+        sources_.record(source, n);               // por origen: datagramas y bytes
+        sizeCounts_.record(n);                    // por tamaño, exacto
 
-        if (n < kHeaderSize) {                       // 29 bytes
-            metrics_.invalid[Reason::Truncated]++;
-            noteEvent(Truncated);                    // marcar bandera; NO registrar
+        if (n < kMinDatagramBytes) {              // 29 bytes: la única validación de T1
+            truncated_++;
+            noteEvent(Truncated);                 // marcar bandera; NO registrar
             pool_.release(buf);
             continue;
         }
 
-        buf.setLength(n).setRecvTime(t).setOrigin(origin).addRef();
-        if (!qRaw_.tryPush(buf))  { metrics_.dropped[Queue::Raw]++;  buf.release(); }
-        if (!qRec_.tryPush(buf))  { metrics_.dropped[Queue::Rec]++;  buf.release(); }
+        pool_.setPayloadSize(buf, n);
+        const ReceivedDatagram datagram{buf, t, origin, source};   // 32 B: §3.1 de 04
+        distribute(datagram);                     // retain -> tryPush -> release si falla
+        pool_.release(buf);                       // la referencia de T1: la vuelta no la conserva
+    }
+}
+
+// Cada cola, por separado y con su propia referencia contada.
+void UdpReceiver::distribute(const ReceivedDatagram& datagram) {
+    for (auto& queue : {qRaw_, qRec_}) {
+        if (!pool_.retain(datagram.handle)) { continue; }        // ANTES del tryPush
+        if (!queue.tryPush(datagram)) {
+            pool_.release(datagram.handle);                      // la de ESTA cola
+            dropped_[queue]++; noteEvent(QueueFull);             // descarte del más nuevo
+        }
     }
 }
 ```
@@ -160,7 +180,8 @@ Propiedades del bucle:
 - **Marca de tiempo lo antes posible.** Cualquier trabajo previo contamina la medición y la fidelidad del replay.
 - **`tryPush` nunca bloquea.** Si una cola está llena, se descarta **el más nuevo** y se contabiliza
   (§4.3 de `04-ARCHITECTURE.md`). Cada cola lleva su propia referencia contada: `retain` antes del
-  `tryPush`, `release` de **esa** referencia si el `tryPush` falla.
+  `tryPush`, `release` de **esa** referencia si el `tryPush` falla. Al final de la vuelta T1 suelta la
+  suya, así que **no conserva ninguna referencia entre vueltas** (§2.4).
 - **El pool agotado no es una pérdida observada.** Significa que el receptor no tenía dónde recibir;
   el datagrama puede seguir esperando en el buffer del sistema operativo y recibirse después. Se
   contabiliza como estado (`udp_pool_exhaustion_total`), no como descarte. Si el agotamiento dura, el
@@ -344,6 +365,47 @@ Se eleva por encima de la normal, **no a tiempo real**. Elevar a tiempo real un 
 La llamada vive en un adaptador de plataforma (`thread_priority_win32.cpp` /
 `thread_priority_posix.cpp`), el único fichero de `pw::net` autorizado a incluir `windows.h` y
 `processthreadsapi.h` (`tools/check_deps.py`).
+
+### 2.4. Parada del receptor
+
+*(implementado en F1.1-12, en su alcance de adquisición)*
+
+El receptor **no gestiona hilos**: ejecuta `run(std::stop_token)` en el hilo que le dé su dueño, y
+el hilo y el `stop_source` son de ese dueño. La parada es cooperativa y **nunca** cierra el socket
+desde otro hilo para despertar a T1:
+
+```mermaid
+sequenceDiagram
+    participant C as Controlador
+    participant T1 as T1 · run()
+    participant Q as Dueño de Qraw/Qrec
+    C->>T1: request_stop()
+    Note over T1: termina como mucho la vuelta en curso:<br/>una espera de pollTimeoutMs o un datagrama
+    T1->>T1: principio de vuelta: stop_requested() → sale
+    Note over T1: al volver retiene 0 BufferHandle
+    C->>T1: join()
+    C->>C: close() o destrucción del receptor
+    Q->>Q: drena Qraw/Qrec y release de cada handle
+    Q->>Q: pool.inUse() == 0 → destruir colas y pool
+```
+
+| Aspecto | Contrato |
+|---|---|
+| Latencia | Tras `request_stop()`, `run()` vuelve tras **como mucho una espera** en condiciones normales. Con el valor por defecto (`pollTimeoutMs` = 100 ms), la parada queda en el entorno de esos ~100 ms más la granularidad del temporizador y la planificación del sistema. Es un **orden de magnitud derivado** de la espera acotada, **no una garantía de plazo**: ni el sistema operativo lo promete ni PitWall lo exige. Con tráfico continuo, la parada se ve en la vuelta siguiente |
+| `pollTimeoutMs` | Debe ser **> 0**. Con 0 no hay espera acotada, `recvfrom` bloquea sin límite y la parada no se vería hasta el siguiente datagrama: `open()` lo rechaza con `SocketErrorKind::InvalidConfiguration` antes de tocar el socket. La restricción es del receptor; `IUdpSocket` puede seguir admitiendo 0 |
+| `close()` | **Precondición: nunca a la vez que `run()`.** Primero `request_stop()` y `join()`; después `close()` o la destrucción. Cerrar desde otro hilo no es seguro ni portable —el handle puede reutilizarse mientras T1 está en `select`/`poll` o `recvfrom`—, así que el diseño evita esa concurrencia en vez de protegerla: sin mutex, sin handle atómico, sin socket de despertar |
+| Destrucción | Misma precondición: el receptor no se destruye con otro hilo dentro de `run()` |
+| `BufferHandle` | Cada vuelta suelta la referencia de T1 antes de volver a mirar la señal, en todos los caminos. **Al volver `run()`, T1 retiene 0 referencias**: lo que quede pertenece sólo a las colas, una referencia por cola en la que entró |
+| Drenaje | Lo hace el **consumidor o dueño** de Qraw/Qrec, **nunca T1**: vaciar sus propias colas rompería el modelo SPSC. El pool se destruye sólo tras el drenaje, con `inUse() == 0` |
+| Sucesos | Una parada solicitada **no produce ninguno**. `SocketClosed` sigue siendo sólo el socket cerrado antes o durante `run()`; `SocketFailure`, un fallo real. Cerrar tras el `join` no marca nada |
+| `Interrupted` | Una señal que interrumpe `poll` (`EINTR`, POSIX) **no es un fallo**: ni `socketErrors`, ni `SocketFailure`, ni actividad, ni pausa. Se comprueba el silencio y se reintenta en la vuelta siguiente, que vuelve a mirar la señal de parada |
+
+Windows (`select` → `recvfrom` → `closesocket` tras el `join`) y POSIX (`poll` → `recvfrom` → `close`
+tras el `join`) siguen el mismo orden. La rama POSIX no se ha validado todavía en un Linux real.
+
+**Alcance.** Esto es la parte de adquisición de RNF-055. El drenaje real por T2/T3, el cierre de la
+captura, la persistencia, el orden global de `Core` (`09-BACKEND-PLAN.md` §5), RF-629 desde la
+ventana y `Ctrl+C` de extremo a extremo (`pw-listen`, F1.1-13) llegan en sus fases.
 
 ---
 

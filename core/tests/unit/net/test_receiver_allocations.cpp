@@ -968,6 +968,93 @@ TEST_CASE("COLD PATH: cero asignaciones en cada transicion de estado",
     REQUIRE(pool.inUse() == 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Parada (F1.1-12): cero asignaciones en los caminos nuevos
+// ─────────────────────────────────────────────────────────────────────────────
+
+TEST_CASE("COLD PATH: cero asignaciones al parar antes de run() y con Interrupted",
+          "[net][receiver][allocations][coldpath][shutdown][RNF-013][F1.1-12]")
+{
+    // La salida de run() por parada solicitada ya queda medida en todas las
+    // pruebas anteriores: el contador se desarma DESPUES de que run() vuelva.
+    // Aqui se miden los dos caminos que F1.1-12 anade: la parada pedida antes
+    // de entrar (prioridad + salida inmediata) y una operacion interrumpida.
+    const Ipv4Endpoint game{{192, 168, 1, 50}, 20777};
+
+    pw::mem::BufferPool pool{64, 2048};
+    auto                rawQueue = std::make_unique<RawQueue>();
+    auto                recQueue = std::make_unique<RecQueue>();
+
+    pw::obs::MetricsRegistry metrics;
+    pw::obs::Logger          logger{pw::obs::LoggerConfig{}};
+
+    // ── A. Parada pedida antes de run() ─────────────────────────────────────
+    std::uint64_t stopBeforeRun = 0;
+    {
+        const std::vector<ScriptedDatagram> script{{game, 64}};
+        pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
+                                      metrics, logger, std::make_unique<ScriptedSocket>(script),
+                                      &pw::monotonicNowNs, &pw::test::fakePriorityRaised};
+        REQUIRE(receiver.open().has_value());
+
+        std::stop_source stopper;
+        stopper.request_stop();
+
+        alloc_probe::reset();
+        std::thread worker{[&] {
+            alloc_probe::counting = true;
+            receiver.run(stopper.get_token());
+            alloc_probe::counting = false;
+        }};
+        worker.join();
+        stopBeforeRun = alloc_probe::count();
+    }
+
+    // ── B. Interrupted entre datagramas, y parada ───────────────────────────
+    const std::vector<ScriptedDatagram> script{
+        {game, 1349},
+        pw::test::scriptedError(pw::net::SocketErrorKind::Interrupted),
+        pw::test::scriptedError(pw::net::SocketErrorKind::Interrupted),
+        pw::test::scriptedError(pw::net::SocketErrorKind::Interrupted),
+        {game, 1349},
+    };
+    auto        scripted = std::make_unique<ScriptedSocket>(script);
+    auto* const socket   = scripted.get();
+
+    pw::net::UdpReceiver receiver{pw::net::UdpReceiverConfig{}, pool, *rawQueue, *recQueue,
+                                  metrics, logger, std::move(scripted), &pw::monotonicNowNs,
+                                  &pw::test::fakePriorityRaised};
+    REQUIRE(receiver.open().has_value());
+
+    alloc_probe::reset();
+    std::stop_source stopper;
+    std::thread      worker{[&] {
+        alloc_probe::counting = true;
+        receiver.run(stopper.get_token());
+        alloc_probe::counting = false;
+    }};
+    const auto all = waitUntil([&] { return socket->delivered() == socket->total(); });
+    stopper.request_stop();
+    worker.join();
+    const auto interrupted = alloc_probe::count();
+
+    WARN("COLD PATH parada: parada antes de run() " << stopBeforeRun
+         << ", Interrupted x3 entre datagramas y parada " << interrupted
+         << " asignaciones en T1  [" << alloc_probe::describeSizes() << "]");
+
+    REQUIRE(all);
+    REQUIRE(receiver.stats().received == 2);
+    REQUIRE(receiver.stats().socketErrors == 0);
+    REQUIRE_FALSE(receiver.eventSeen(pw::net::ReceiverEvent::SocketFailure));
+    REQUIRE(stopBeforeRun == 0);
+    REQUIRE(interrupted == 0);
+
+    ReceivedDatagram datagram;
+    while (rawQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+    while (recQueue->tryPop(datagram)) { pool.release(datagram.handle); }
+    REQUIRE(pool.inUse() == 0);
+}
+
 TEST_CASE("La instrumentacion detecta una asignacion de verdad",
           "[net][receiver][allocations]")
 {
