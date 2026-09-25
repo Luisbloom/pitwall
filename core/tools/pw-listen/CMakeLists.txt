@@ -8,14 +8,7 @@ add_library(pw_listen_app STATIC
 )
 add_library(pw::listen_app ALIAS pw_listen_app)
 target_include_directories(pw_listen_app PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(pw_listen_app PUBLIC pw_core pw_obs pw_config pw_mem pw_net)
-
-# El adaptador de la senal de parada, uno por plataforma.
-if(WIN32)
-    target_sources(pw_listen_app PRIVATE stop_signal_win32.cpp)
-else()
-    target_sources(pw_listen_app PRIVATE stop_signal_posix.cpp)
-endif()
+target_link_libraries(pw_listen_app PUBLIC pw_core pw_obs pw_config pw_mem pw_net pw_tools_common)
 
 pw_target_warnings(pw_listen_app)
 

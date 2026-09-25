@@ -75,7 +75,8 @@ pw_add_test_executable(pw_net_tests
 pw_add_test_executable(pw_tools_tests
     SOURCES
         unit/tools/test_listen_app.cpp
-    LIBRARIES pw_listen_app)
+        unit/tools/test_load_generator.cpp
+    LIBRARIES pw_listen_app pw_load_app)
 
 # COMPILACION INSTRUMENTADA (F1.1-07, RNF-013): este ejecutable sustituye los
 # operadores globales de reserva de memoria para contar asignaciones en el hilo

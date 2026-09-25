@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Estructura del proyecto"
 subtitle: "Árbol del repositorio con explicación de cada carpeta"
-version: "1.3"
+version: "1.4"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -78,10 +78,14 @@ pitwall/
 │   │   ├── PitWall/             EJECUTABLE DE ESCRITORIO (shell + núcleo)
 │   │   └── pitwall-cli/         mismo núcleo SIN interfaz: pruebas, lotes, CI en Linux
 │   └── tools/                   ejecutables auxiliares
+│       ├── common/              infraestructura compartida por las herramientas
+│       │   └── stop_signal*.{hpp,cpp}  adaptadores de Ctrl+C / SIGINT (F1.1-13)
 │       ├── pw-listen/           escucha e imprime estadísticas (F1.1-13)
 │       │   ├── main.cpp                argumentos, señal y código de salida
-│       │   ├── listen_app.hpp/.cpp     la lógica, probada sin lanzar el proceso
-│       │   └── stop_signal_*.cpp       adaptadores de Ctrl+C / SIGINT
+│       │   └── listen_app.hpp/.cpp     la lógica, probada sin lanzar el proceso
+│       ├── pw-load/             emisor de carga UDP sostenida (F1.1-14)
+│       │   ├── main.cpp                argumentos, señal y código de salida
+│       │   └── load_generator.hpp/.cpp ritmo por fecha límite; mide lo conseguido
 │       ├── pw-capture/          info, verify, extract, slice, anonymize, replay…
 │       └── pw-gen/              generador sintético de casos degradados
 │
@@ -221,6 +225,7 @@ Ejecutables auxiliares, separados del binario principal para poder usarse en int
 | Herramienta | Cuándo se usa |
 |---|---|
 | `pw-listen` | Primera prueba contra el juego real |
+| `pw-load` | Carga sintética sostenida para RNF-001; no habla el protocolo |
 | `pw-capture` | A diario: verificar, recortar, anonimizar, extraer fixtures, reproducir |
 | `pw-gen` | Generar los casos degradados que no se pueden capturar |
 
