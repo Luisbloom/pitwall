@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Guía de desarrollo"
 subtitle: "De cero a un sistema funcionando: herramientas, módulos, pruebas, ejecución y depuración"
-version: "1.4"
+version: "1.5"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -534,6 +534,46 @@ Lo que no se puede automatizar, con lista de comprobación para que al menos sea
 - [ ] Volver a emitir: vuelve a `recibiendo`
 - [ ] `Ctrl+C`: imprime el resumen, `buffers en uso al terminar: 0` y sale con código 0
 
+#### Resultado registrado *(F1.1: criterio de DoD «flujo estable con el juego emitiendo» **validado**)*
+
+Ejecutado con `pw-listen --bind 0.0.0.0 --port 20777` sobre
+`46b9c2679ea84f8491f832018fea4b0eaa48248e`, con F1 25 real en *UDP Telemetry* `On`, destino
+`127.0.0.1:20777`, **Send Rate 60 Hz**, *Format* 2026 y *Broadcast* `Off`. Sesión de modo carrera:
+clasificación y carrera completas.
+
+| Medida | Valor |
+|---|---|
+| Activo | 01:24:19 |
+| `SO_RCVBUF` | 4 194 304 B solicitados, **4 194 304 concedidos** |
+| Datagramas | **1 130 012 recibidos, 1 130 012 entregados** · 1 136 005 250 B |
+| Ritmo **en pista** | **410-419 pkt/s**, pico observado **460** |
+| Media global | 223,4 pkt/s — **incluye menús y periodos sin emisión; no es el caudal en pista** |
+| Inválidos | 0 truncados, 0 oversized, 0 errores de socket |
+| Descartes | `qraw_drop` 0, `qrec_drop` 0, pool agotado 0 |
+| Transiciones | **105 entradas en recepción y 105 periodos de inactividad** |
+| Prioridad de T1 | elevada |
+| `buffers en uso al terminar` | **0** |
+| Orígenes | 1 |
+| Tamaños distintos | **15 detectados**; el resumen final imprimió **10** |
+
+Los tamaños impresos son coherentes con el **formato 2026** del catálogo de `03` §3: 269 B (Car
+Telemetry 2, que no existe en 2025), 273 B (Motion Ex), 1325 B (Motion), 1399 B (Lap Data), 1445 B
+(Car Status), 1448 B (Car Telemetry), 231 B (Tyre Sets), 1460 B (Session History), 1133 B (Car
+Damage) y 45 B (Event).
+
+Los **seis paquetes ligados al *Send Rate*** —ids 0, 2, 6, 7, 13 y 16— aparecieron con **exactamente
+162 061 copias cada uno**, lo que concuerda con la garantía de `03` §3.1: en el fotograma en que se
+envían van todos juntos y nunca se separan entre fotogramas.
+
+> **Limitación observada.** `pw-listen` contabilizó 15 tamaños distintos pero su resumen sólo imprimió
+> 10. Los 5 restantes quedaron contados y **no listados**, así que no se identifican aquí. No afecta a
+> ningún criterio de F1.1.
+
+> Esta prueba **no** valida la recepción desde la LAN (§13.4): el emisor era el mismo PC. Tampoco
+> sustituye a la prueba de rendimiento de `10` §8 —«415 datagramas/s durante 1 h»—, que es una
+> inyección sostenida y controlada, mientras que ésta es una sesión real con menús, silencios y
+> variaciones de ritmo. Ambas siguen pendientes.
+
 ### 13.4. Recepción desde la LAN (DoD de F1.1)
 
 - [ ] `pw-listen --bind 0.0.0.0 --port 20777` en el PC
@@ -585,6 +625,30 @@ Al terminar, se contrastan **los dos resúmenes**:
 > envíos. Si el sistema suspende el hilo, recupera los periodos vencidos con un tope y, si el retraso
 > es grande, renuncia a ellos y los cuenta como **omitidos**. A ritmos altos la herramienta consume
 > un núcleo: es un emisor de prueba, no parte del producto.
+
+#### Resultado registrado *(**RNF-001 validado**)*
+
+Ejecutado sobre `46b9c2679ea84f8491f832018fea4b0eaa48248e`, en loopback `127.0.0.1:20777`, con
+payload de **1200 B**, las dos herramientas en sendas terminales según el procedimiento de arriba.
+
+| De `pw-load` | Valor | De `pw-listen` | Valor |
+|---|---|---|---|
+| Duración pedida | 1800 s | Recibidos | **1 800 000** |
+| Duración real | **1800,0 s** | Entregados | **1 800 000** |
+| Ritmo objetivo | 1000 datagramas/s | Bytes | 2 160 000 000 |
+| Ritmo real | **1000,0 datagramas/s** | Truncados / oversized / errores de socket | 0 / 0 / 0 |
+| Enviados | **1 800 000** | `qraw_drop` / `qrec_drop` | 0 / 0 |
+| Fallos de envío | **0** | Pool agotado | **0** |
+| Periodos omitidos | **0** | `buffers en uso al terminar` | **0** |
+| | | Estado final | `inactivo` |
+
+**Enviados − recibidos = 0.** Por tanto: **0 pérdidas observadas en esta ejecución local
+controlada**, y **0 descartes atribuibles a la aplicación**. Lo primero está acotado a esta ejecución
+y a loopback; lo segundo depende sólo de PitWall y se afirma sin matices.
+
+El receptor se detuvo con una **pulsación manual de `Ctrl+C`**: imprimió su resumen completo y salió
+de forma ordenada, **sin terminación forzada**. Eso cubre además el criterio de la DoD «`Ctrl+C`
+cierra limpiamente sin fugas ni bloqueos».
 
 ### 13.2. Configuración en consola (al implementar RF-003)
 

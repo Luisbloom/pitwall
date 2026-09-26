@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de implementación"
 subtitle: "Fases, tareas, dependencias y Definition of Done"
-version: "1.6"
+version: "1.7"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -188,9 +188,9 @@ depurar todo lo demás.
 | `Ctrl+C` (`SetConsoleCtrlHandler`) marca una bandera; el apagado sigue el orden de F1.1-12 | ✅ F1.1 |
 | Adaptador POSIX con `sigaction` | ◐ Compila; **sin validar en Linux real** |
 | Puerto ocupado: mensaje accionable y salida 3 | ✅ F1.1, con prueba automática |
-| DoD «`pw-listen` muestra un flujo estable con el juego emitiendo» | ⏳ **prueba manual pendiente** (`16` §13.3) |
-| DoD «bind `0.0.0.0` recibe de otra máquina de la LAN» | ⏳ **prueba manual pendiente** |
-| DoD «`Ctrl+C` cierra limpiamente» | ◐ Automática sobre la costura de parada; el Ctrl+C real, manual |
+| DoD «`pw-listen` muestra un flujo estable con el juego emitiendo» | ✅ **validado** con F1 25 a **60 Hz** (`16` §13.3) |
+| DoD «bind `0.0.0.0` recibe de otra máquina de la LAN» | ⏳ **prueba manual pendiente**. Escuchar en `0.0.0.0` y recibir desde `127.0.0.1` **no** valida la LAN |
+| DoD «`Ctrl+C` cierra limpiamente» | ✅ **validado** con una pulsación manual de `Ctrl+C` (`16` §13.5) |
 | Generador de 1000 datagramas/s | ✅ F1.1-14: `pw-load`; `pw-listen` sólo recibe |
 
 **Estado de F1.1-14** *(v1.6)*:
@@ -201,22 +201,40 @@ depurar todo lo demás.
 | Payload preasignado, 0 asignaciones por datagrama, patrón sintético **que no es protocolo F1** | ✅ F1.1 |
 | Publica ritmo **objetivo y real**, duración real y periodos omitidos por el planificador | ✅ F1.1 |
 | Integración corta automática (< 1 s) contra `pw-listen`: 0 descartes, 0 agotamientos, `inUse` 0 | ✅ F1.1 |
-| **RNF-001: 1000 datagramas/s durante 30 min** | ⏳ **prueba manual pendiente** (`16` §13.5) |
+| **RNF-001: 1000 datagramas/s durante 30 min** | ✅ **validado** (`16` §13.5) |
 | 415 datagramas/s durante 1 h (`10` §8) | ⏳ otra validación, fuera de F1.1-14 |
 
-> La prueba automática **no** demuestra RNF-001: dura menos de un segundo. Sólo la ejecución manual
-> de 30 minutos lo hace, y su resultado se anotará con el alcance exacto de lo observado.
+> La prueba automática **no** demuestra RNF-001: dura menos de un segundo. Lo demuestra la ejecución
+> manual de 30 minutos, ya realizada; su resultado, con el alcance exacto de lo observado, está en
+> `16` §13.5.
 
 ### DoD de F1.1
 
-- [ ] Con el juego emitiendo, `pw-listen` muestra un flujo estable de datagramas
+- [x] Con el juego emitiendo, `pw-listen` muestra un flujo estable de datagramas
 - [ ] Con bind `0.0.0.0`, se reciben datagramas de otra máquina de la LAN
-- [ ] Un datagrama de 10 bytes se cuenta como truncado y no provoca fallo
-- [ ] 1000 datagramas/s durante 30 min: 0 pérdidas, 0 agotamientos del pool
-- [ ] 0 asignaciones por datagrama, verificado con compilación instrumentada
+- [x] Un datagrama de 10 bytes se cuenta como truncado y no provoca fallo
+- [x] 1000 datagramas/s durante 30 min: 0 pérdidas, 0 agotamientos del pool
+- [x] 0 asignaciones por datagrama, verificado con compilación instrumentada
 - [ ] ThreadSanitizer sin hallazgos sobre la prueba de estrés
-- [ ] `Ctrl+C` cierra limpiamente sin fugas ni bloqueos
-- [ ] El error de puerto ocupado dice qué hacer
+- [x] `Ctrl+C` cierra limpiamente sin fugas ni bloqueos
+- [x] El error de puerto ocupado dice qué hacer
+
+**Estado de la DoD: 6 de 8** *(v1.7)*. La evidencia de cada criterio:
+
+| Criterio | Estado | Evidencia |
+|---|---|---|
+| Flujo estable con el juego emitiendo | ✅ | Captura real con F1 25 a **60 Hz**: 1 130 012 datagramas, 410-419 pkt/s en pista (`16` §13.3) |
+| Recepción desde otra máquina de la LAN | ⏳ | **Pendiente.** Requiere un emisor externo (`16` §13.4) |
+| Datagrama de 10 B contado como truncado | ✅ | Prueba automática en `test_udp_receiver.cpp` |
+| 1000 datagramas/s durante 30 min | ✅ | Ejecución manual de 1800 s (`16` §13.5) |
+| 0 asignaciones por datagrama | ✅ | `pw_net_alloc_tests`, compilación instrumentada |
+| ThreadSanitizer sobre la prueba de estrés | ⏳ | **Pendiente.** El preset `tsan` exige Clang sobre Linux; no es ejecutable en la máquina de desarrollo |
+| `Ctrl+C` cierra limpiamente | ✅ | Pulsación manual al cerrar la ejecución de RNF-001, con `buffers en uso: 0` (`16` §13.5) |
+| Error de puerto ocupado accionable | ✅ | Prueba automática de `pw-listen`, salida 3 |
+
+> **F1.1 no está cerrada.** Los dos criterios pendientes dependen de recursos externos —una segunda
+> máquina y una plataforma Linux con Clang—, no de trabajo de implementación. La implementación de
+> F1.1-01 … F1.1-14 está completa; lo que falta es **validación**, que es otra cosa.
 
 > **Hito de aprendizaje.** Al cerrar F1.1 se habrá practicado: sockets, colas lock-free, alineación de caché, pools de memoria, prioridades de hilo y apagado ordenado. Es un fin de fase natural para revisar el código con calma antes de seguir.
 
