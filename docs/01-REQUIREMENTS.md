@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Documento de Requisitos de Software"
 subtitle: "Plataforma de telemetría e ingeniería de carrera para EA SPORTS F1 25 y F1 25: 2026 Season Pack"
-version: "1.5"
+version: "1.6"
 status: "Aprobado para desarrollo"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -1552,7 +1552,7 @@ classDiagram
         +formatId() uint16
         +expectedSize(packetId) optional~size_t~
         +supportedPacketVersions(packetId) span~uint8~
-        +decode(header, payload) DecodeResult
+        +decode(header, payload) Result~ValidatedPacket, DecodeStatus~
     }
     class F1_2025_Decoder
     class F1_2026_Decoder
@@ -2212,7 +2212,7 @@ graph LR
 | ID | Pregunta | Impacto | Cómo se resolverá | Plazo |
 |---|---|---|---|---|
 | **Q-01** | ¿`m_overallFrameIdentifier` es monótono también entre sesiones, o se reinicia? | Alto: es el ordenador temporal principal (RN-002) | Medición sobre capturas reales de dos sesiones consecutivas | Fase 1 |
-| **Q-02** | ¿Cuál es la lista exacta de valores de *UDP Send Rate* del menú? | Bajo: se mide el ritmo real (RF-801) | Inspección en el juego | Fase 1 |
+| **Q-02** | ¿Cuál es la lista exacta de valores de *UDP Send Rate* del menú? **Parcialmente observado en F1.1**: el menú permitió seleccionar **60 Hz**, y el caudal medido lo confirmó (`16` §13.3). La lista completa sigue sin conocerse | Bajo: se mide el ritmo real (RF-801) | Inspección en el juego | Fase 1 |
 | **Q-03** | ¿Qué valores exactos toma `m_recommendedSession` en Tyre Sets? La especificación remite a un apéndice que no lo enumera explícitamente | Bajo | Observación empírica y contraste con tipos de sesión | Fase 2 |
 | **Q-04** | ¿Emite el juego `Motion` con posiciones válidas durante el Safety Car y la vuelta de formación? | Medio: afecta al mapa | Captura real | Fase 2 |
 | **Q-05** | ¿Cómo se comporta `m_sessionUID` ante un reinicio de sesión sin salir al menú? | Medio: afecta a RN-003 | Captura real | Fase 1 |

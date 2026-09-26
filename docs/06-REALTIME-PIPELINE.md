@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.8"
+version: "1.9"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -463,40 +463,58 @@ El umbral de 3 datagramas evita reaccionar a un datagrama espurio de otra aplica
 
 ### 4.1. Estrategia: vista tipada, sin copia
 
+El decoder **valida e identifica; no traduce**. Devuelve una vista del paquete ya validado y **no conoce `pw::domain`**:
+
 ```cpp
-DecodeResult F1_2026_Decoder::decode(const PacketHeader& h,
-                                     std::span<const std::byte> payload,
-                                     DomainSink& sink) const
+Result<ValidatedPacket, DecodeStatus>
+F1_2026_Decoder::decode(const PacketHeader& h, std::span<const std::byte> payload) const noexcept
 {
-    switch (static_cast<PacketId>(h.packetId)) {
-    case PacketId::CarTelemetry: {
-        const auto& p = viewAs<f1_2026::PacketCarTelemetryData>(payload);
-        normalize::apply(p, h, policy_, sink);
-        return DecodeResult::Ok;
+    const auto id = static_cast<PacketId>(h.m_packetId);
+    const auto expected = expectedSize(id);
+    if (!expected)                     { return Unexpected{DecodeStatus::UnknownId}; }
+    if (payload.size() != *expected)   { return Unexpected{DecodeStatus::BadSize}; }
+    if (!supportsVersion(id, h.m_packetVersion)) {
+        // Se avisa UNA vez y se continúa: el tamaño coincide (§3, etapa 2).
     }
+    return ValidatedPacket{formatId(), id, h.m_packetVersion, &h, payload};
+}
+```
+
+La traducción a dominio ocurre **después**, en la etapa 4 (§5), dentro de `pw::normalize`, que es el único módulo que conoce a la vez `proto` y `domain`. `normalize` despacha por `id` y pide el tipo que corresponde:
+
+```cpp
+// pw::normalize — F1.3
+void applyPacket(const ValidatedPacket& vp, const TelemetryPolicy& policy, DomainSink& sink)
+{
+    switch (vp.id) {
+    case PacketId::CarTelemetry:
+        normalize::apply(viewAs<f1_2026::PacketCarTelemetryData>(vp), *vp.header, policy, sink);
+        break;
     // …
-    default:
-        return DecodeResult::UnknownId;
     }
 }
 ```
 
-`viewAs<T>` es la única operación delicada del sistema:
+`viewAs<T>` vive en `pw::decoder` —no en `pw::proto`, que es sólo descripción del formato— y es la única operación delicada del sistema:
 
 ```cpp
 template <typename T>
-const T& viewAs(std::span<const std::byte> b) {
+const T& viewAs(const ValidatedPacket& vp) {
     static_assert(std::is_trivially_copyable_v<T>);
+    static_assert(alignof(T) == 1);
     static_assert(sizeof(T) == expectedSizeOf<T>);
-    assert(b.size() == sizeof(T));            // ya garantizado por la validación previa
-    return *std::launder(reinterpret_cast<const T*>(b.data()));
+    assert(vp.payload.size() == sizeof(T));   // ya garantizado por la validación previa
+    assert(vp.id == packetIdOf<T>);           // el tipo pedido es el del paquete recibido
+    return *std::launder(reinterpret_cast<const T*>(vp.payload.data()));
 }
 ```
 
+Pedir un `T` que no corresponde al `id` recibido es un error de programación, no un dato malicioso: por eso es una aserción y no una comprobación en ejecución. La correspondencia `T ↔ PacketId` se declara **una vez por formato**, junto a la tabla de tamaños.
+
 **Precondiciones que la hacen segura:**
 
-1. El tamaño ya se validó **exactamente** en la etapa 2. Sin esa validación, esto sería una vulnerabilidad.
-2. Los structs son `#pragma pack(1)` y trivialmente copiables.
+1. El tamaño ya se validó **exactamente** en la etapa 2. Sin esa validación, esto sería una vulnerabilidad. Recibir una `ValidatedPacket` —que sólo construye el decoder— es lo que hace visible en el tipo que esa validación ya ocurrió.
+2. Los structs se declaran con `#pragma pack(push, 1)` … `#pragma pack(pop)` y son trivialmente copiables.
 3. El `static_assert` garantiza la correspondencia con la especificación.
 4. La plataforma objetivo es little-endian (x86-64, ARM64 en modo LE).
 

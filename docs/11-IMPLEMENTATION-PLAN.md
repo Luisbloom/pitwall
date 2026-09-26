@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de implementación"
 subtitle: "Fases, tareas, dependencias y Definition of Done"
-version: "1.7"
+version: "1.8"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -242,9 +242,11 @@ depurar todo lo demás.
 
 ## 5. FASE F1.2a — Protocolo 2026
 
-**Objetivo.** Transcribir el formato 2026 completo y decodificarlo con seguridad.
+**Objetivo.** Transcribir el formato 2026 completo y **validarlo e identificarlo** con seguridad. La traducción a dominio es de F1.3: `pw::decoder` no conoce `pw::domain` (`04-ARCHITECTURE.md` §3.3).
 
 **Duración estimada.** 5-7 días. **Depende de:** F0. **Paralelizable con:** F1.1.
+
+> **Dependencia parcial de F1.4** *(v1.8)*. Las tareas F1.2a-01 … F1.2a-13 y F1.2a-16 se desarrollan con **fixtures sintéticos verificados** (`10-TESTING-PLAN.md` §11.1): bytes construidos desde la especificación. Pero F1.2a-14 y F1.2a-15 piden **fixtures reales**, y TST-02 exige extraerlos con una herramienta del repositorio, que es **F1.4-17**. Esas dos tareas, y con ellas los criterios de la DoD que dependen de fixtures reales, **quedan bloqueadas hasta disponer del extractor**. F1.2a puede avanzar entera con sintéticos; **no puede cerrarse** con ellos.
 
 ### Tareas
 
@@ -256,29 +258,32 @@ depurar todo lo demás.
 | F1.2a-04 | Structs de los paquetes 0-8 | Motion, Session, Lap Data, Event, Participants, Car Setups, Car Telemetry, Car Status, Final Classification | RF-103 |
 | F1.2a-05 | Structs de los paquetes 9-16 | Lobby Info, Car Damage, Session History, Tyre Sets, Motion Ex, Time Trial, Lap Positions, **Car Telemetry 2** | RF-103 |
 | F1.2a-06 | Los 4 niveles de `static_assert` | Tamaño total, aritmética, offsets críticos, layout | `10-TESTING-PLAN.md` §3 |
-| F1.2a-07 | `viewAs<T>` seguro | Con precondición de tamaño; variante con `memcpy` activable | SEC-02, SEC-03 |
-| F1.2a-08 | `IProtocolDecoder` y registro | Interfaz y `DecoderRegistry` | RF-101 |
-| F1.2a-09 | `F1_2026_Decoder` | Despacho por `packetId`, validación de tamaño exacto y de versión | RF-103, RF-005 |
+| F1.2a-07 | `viewAs<T>` seguro | En `pw::decoder`, sobre una `ValidatedPacket`; variante con `memcpy` activable | SEC-02, SEC-03 |
+| F1.2a-08 | `IProtocolDecoder` y registro | Interfaz, `ValidatedPacket` y `DecoderRegistry`. **Sin `DomainSink`**: el decoder no conoce `domain` | RF-101 |
+| F1.2a-09 | `F1_2026_Decoder` | Despacho por `packetId`, validación de tamaño exacto y de versión; devuelve `ValidatedPacket` | RF-103, RF-005 |
 | F1.2a-10 | Unión de eventos | Los **25** códigos, incluidos `PMEN`, `PMDI`, `OVEN`, `OVDI` y `PartialModeEnabled` | RF-106, RF-107 |
 | F1.2a-11 | Acotación de contadores | `min(m_numActiveCars, kMaxCars)` y equivalentes en **todos** los contadores recibidos | **SEC-06** |
-| F1.2a-12 | Catálogos 2026 | Equipos (incluidos 485 Audi y 486 Cadillac), pilotos hasta 207, circuitos con 42 Madrid, nacionalidades, modos, penalizaciones, infracciones | RF-110 |
-| F1.2a-13 | Resolución tolerante | Un identificador desconocido produce «Desconocido (n)», nunca fallo | RF-111 |
-| F1.2a-14 | Captura de fixtures reales | Uno por `packetId` (17), extraídos de una sesión real | TST-02 |
-| F1.2a-15 | Ficheros `.json` de valores esperados | **Verificados a mano** contra la especificación | TST-02 |
-| F1.2a-16 | Pruebas unitarias del decoder | Los 17 paquetes + rechazos + centinelas | — |
-| F1.2a-17 | Objetivo de fuzzing | Con corpus semilla de los fixtures | SEC-16 |
+| F1.2a-12 | **Tablas** de catálogo 2026 | Datos `constexpr` `id → dato oficial`: equipos (incluidos 485 Audi y 486 Cadillac), pilotos hasta 207, circuitos con 42 Madrid, nacionalidades, modos, penalizaciones, infracciones. **Sin resolución presentable** | RF-110 |
+| F1.2a-13 | — | **Movida a F1.3-17**: la resolución tolerante produce texto presentable y vive en `pw::normalize` (`04` §3.5) | — |
+| F1.2a-14 | Captura de fixtures **reales** | Uno por `packetId` (17), extraídos de una sesión real. ⏳ **bloqueada por F1.4-17** | TST-02 |
+| F1.2a-15 | Ficheros `.json` de valores esperados | **Verificados a mano** contra la especificación. ⏳ **bloqueada por F1.2a-14** | TST-02 |
+| F1.2a-16 | Pruebas unitarias del decoder | Los 17 paquetes + rechazos + centinelas. Con sintéticos verificados mientras no haya reales | — |
+| F1.2a-17 | Objetivo de fuzzing | Con corpus semilla de los fixtures **reales**. ⏳ **bloqueada por F1.2a-14** | SEC-16 |
 
 ### DoD de F1.2a
 
-- [ ] Los 17 tipos de paquete se decodifican desde fixtures reales
+- [ ] Los 17 tipos de paquete se validan e identifican desde fixtures **reales** ⏳ *bloqueado por F1.4-17*
 - [ ] Los 4 niveles de `static_assert` en verde para los 17 paquetes
 - [ ] Los 25 códigos de evento producen el tipo correcto
 - [ ] Un datagrama con un byte de más se rechaza y registra el par (esperado, observado)
 - [ ] `m_numActiveCars = 255` **no** provoca lectura fuera de límites (prueba explícita)
-- [ ] Fuzzing de 1 h: 0 caídas, 0 hallazgos del desinfectante de direcciones
-- [ ] `teamId = 486` resuelve a «Cadillac '26»; `trackId = 42` a «Madrid»
-- [ ] `trackId = 99` muestra «Circuito desconocido (99)»
+- [ ] Fuzzing de 1 h: 0 caídas, 0 hallazgos del desinfectante de direcciones ⏳ *corpus semilla real, bloqueado por F1.4-17*
+- [ ] La tabla del formato asocia `teamId = 486` al dato oficial de Cadillac y `trackId = 42` al de Madrid
 - [ ] p99 de decodificación < 50 µs
+
+> **Dos criterios se han movido a F1.3** *(v1.8)*: «`teamId = 486` resuelve a "Cadillac '26"» y «`trackId = 99` muestra "Circuito desconocido (99)"». Ambos exigen **texto presentable**, y presentar es de `pw::normalize`, no de `pw::proto`. Lo que sí verifica F1.2a es que la **tabla del formato** contenga el dato correcto para cada id.
+>
+> **Tres criterios dependen de fixtures reales** y por tanto del extractor de F1.4-17. Con sintéticos verificados se puede tener toda la fase en verde salvo esos tres; eso **no** cierra F1.2a.
 
 ---
 
@@ -336,6 +341,7 @@ depurar todo lo demás.
 | F1.3-14 | `Motion Ex` sólo para el coche del jugador | RN-012 |
 | F1.3-15 | Verificación del aislamiento del dominio | RNF-084 |
 | F1.3-16 | Pruebas de equivalencia entre formatos | RF-201 |
+| F1.3-17 | **Resolución tolerante de catálogos** *(v1.8, desde F1.2a-13)*: consultar las tablas de `pw::proto` y producir el texto presentable, incluido «Desconocido (n)» para un id que no está en la tabla | RF-111 |
 
 ### DoD de F1.3
 
@@ -346,7 +352,11 @@ depurar todo lo demás.
 - [ ] Active Aero es `UNAVAILABLE` con razón explícita en 2025
 - [ ] `ersDeployMode = 3` produce `Overtake` en 2025 y `Boost` en 2026
 - [ ] Ningún centinela llega al dominio como número
+- [ ] **`teamId = 486` resuelve a «Cadillac '26» y `trackId = 42` a «Madrid»** *(v1.8, desde F1.2a)*
+- [ ] **`trackId = 99` muestra «Circuito desconocido (99)»** *(v1.8, desde F1.2a)*
 - [ ] Cobertura ≥ 80 % en el normalizador
+
+> **La normalización consume la salida del decoder**, no lo contrario: recibe una `ValidatedPacket` y obtiene el struct del formato con `viewAs<T>` (`06-REALTIME-PIPELINE.md` §4.1). `DomainSink` (F1.3-04) es de esta fase y **no aparece en la interfaz del decoder**.
 
 ---
 

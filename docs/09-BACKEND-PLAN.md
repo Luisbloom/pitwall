@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de backend"
 subtitle: "Módulos C++20/23: shell de escritorio, decoders, estado, persistencia y transporte interno"
-version: "1.6"
+version: "1.7"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -225,16 +225,23 @@ enum class DecodeStatus : std::uint8_t {
     Ok, Truncated, BadSize, UnknownFormat, UnknownId, UnknownVersion, MalformedPayload
 };
 
+// Vista de un paquete ya validado: no posee nada y vive lo que viva su buffer.
+struct ValidatedPacket {
+    std::uint16_t              format;
+    PacketId                   id;
+    std::uint8_t               version;
+    const PacketHeader*        header;
+    std::span<const std::byte> payload;
+};
+
 class IProtocolDecoder {
 public:
     virtual ~IProtocolDecoder() = default;
     virtual std::uint16_t formatId() const noexcept = 0;
     virtual std::optional<std::size_t> expectedSize(PacketId) const noexcept = 0;
     virtual bool supportsVersion(PacketId, std::uint8_t) const noexcept = 0;
-    virtual DecodeStatus decode(const PacketHeader&,
-                                std::span<const std::byte> payload,
-                                const TelemetryPolicy&,
-                                DomainSink&) const noexcept = 0;
+    virtual Result<ValidatedPacket, DecodeStatus>
+        decode(const PacketHeader&, std::span<const std::byte> payload) const noexcept = 0;
 };
 
 class DecoderRegistry {
@@ -246,6 +253,8 @@ public:
 ```
 
 Las tablas de tamaños son `constexpr`, por lo que `expectedSize` es una consulta a un array en tiempo de ejecución sin búsqueda.
+
+`decode` **no recibe ni política ni sumidero de dominio**: `pw::decoder` no conoce `pw::domain`. Devuelve una `ValidatedPacket` —trivialmente copiable, sin asignar y sin copiar el datagrama— que `pw::normalize` consume en F1.3 con `viewAs<T>`. La `TelemetryPolicy` pertenece a la normalización, no a la validación del protocolo.
 
 ### 3.5. `pw::domain`
 

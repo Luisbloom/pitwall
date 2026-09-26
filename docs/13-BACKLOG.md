@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Backlog"
 subtitle: "Epics, historias y tareas con prioridad, esfuerzo, dependencias y criterios de aceptación"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -216,7 +216,7 @@ Utilidad de consola que escucha e imprime estadísticas. Es la primera prueba re
 
 | Tarea | Detalle |
 |---|---|
-| `TASK-PROTO-003-01` | `viewAs<T>` con precondición de tamaño y variante `memcpy` |
+| `TASK-PROTO-003-01` | `viewAs<T>` en `pw::decoder`, sobre una `ValidatedPacket`, con variante `memcpy` |
 | `TASK-PROTO-003-02` | Despacho por `packetId` |
 | `TASK-PROTO-003-03` | Validación de tamaño exacto y de versión |
 | `TASK-PROTO-003-04` | Unión de eventos: los **25** códigos |
@@ -239,7 +239,7 @@ Utilidad de consola que escucha e imprime estadísticas. Es la primera prueba re
 | `TASK-PROTO-004-03` | Circuitos, incluido 42 Madrid |
 | `TASK-PROTO-004-04` | Nacionalidades, modos de juego, ruleset, superficies |
 | `TASK-PROTO-004-05` | Penalizaciones e infracciones |
-| `TASK-PROTO-004-06` | Resolución tolerante de identificadores desconocidos |
+| `TASK-PROTO-004-06` | Resolución tolerante de identificadores desconocidos. **Pertenece a la normalización** (F1.3-17): las tablas son de `pw::proto`, el texto presentable es de `pw::normalize` (`04-ARCHITECTURE.md` §3.5) |
 
 ### STORY-PROTO-005 — Formato 2025 completo
 **P0 · 8 puntos · dep. STORY-PROTO-003**

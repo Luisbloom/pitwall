@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Plan de pruebas"
 subtitle: "Protocolo, unitarias, integración, extremo a extremo en WebView2, replay, fuzzing y rendimiento"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
 date: "2026-09-11"
 author: "Luis Miguel"
@@ -254,15 +254,16 @@ La prueba de «restringidos» se ejecuta **también** como captura de pantalla c
 ```cpp
 extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size) {
     static DecoderRegistry registry = makeFullRegistry();
-    static NullDomainSink  sink;
-    static TelemetryPolicy policy = TelemetryPolicy::allPublic();
 
     if (size < 29) return 0;
     PacketHeader h{};
     std::memcpy(&h, data, 29);
 
-    if (const auto* dec = registry.find(h.packetFormat)) {
-        dec->decode(h, {reinterpret_cast<const std::byte*>(data), size}, policy, sink);
+    if (const auto* dec = registry.find(h.m_packetFormat)) {
+        // El decoder valida e identifica; no traduce a dominio (04 §3.3).
+        const auto packet =
+            dec->decode(h, {reinterpret_cast<const std::byte*>(data), size});
+        if (packet) { consumeEveryField(*packet); }   // recorre la vista tipada
     }
     return 0;
 }
@@ -333,7 +334,8 @@ TEST_CASE("RF-211: la telemetria restringida no se expone como cero", "[normaliz
     TelemetryPolicy policy; policy.setRestricted(3, true);
 
     DomainCapture sink;
-    normalize::apply(viewAs<f1_2026::PacketCarStatusData>(pkt), header, policy, sink);
+    const auto vp = decoder.decode(pkt.header(), pkt.bytes()).value();
+    normalize::apply(viewAs<f1_2026::PacketCarStatusData>(vp), *vp.header, policy, sink);
 
     const auto& car = sink.carStatus(3);
     REQUIRE(car.fuelKg.provenance() == Provenance::Restricted);
@@ -361,6 +363,20 @@ Reglas:
 2. Cada fixture lleva un `.json` con los valores esperados **verificados a mano** la primera vez.
 3. Los fixtures se regeneran tras un cambio de protocolo, y el diff se revisa a mano.
 4. Una captura de referencia por formato es requisito de salida de la Fase 1 (TST-07).
+
+### 11.1. Dos clases de fixture, y no son intercambiables
+
+| | **Fixture sintético verificado** | **Fixture real** |
+|---|---|---|
+| Origen | Bytes construidos a mano desde la especificación | Datagrama **capturado del juego** |
+| Cómo se obtiene | Se escribe en el propio repositorio de pruebas | Se extrae de una captura con una **herramienta del repositorio** (TST-02, F1.4-17) |
+| Para qué sirve | Tamaños, offsets, despacho, rechazos, eventos, centinelas y catálogos | Todo lo anterior **y** el comportamiento real del juego |
+| Qué **no** demuestra | Que el juego emita realmente eso | — |
+| Satisface TST-02 | **No** | Sí |
+
+Los dos son legítimos y se usan en fases distintas: un decoder nuevo se puede escribir y probar entero contra sintéticos —es lo que hacen los `static_assert` y las pruebas de nivel 1 y 2—, pero **un formato no se da por cerrado hasta que sus fixtures reales existen**. Los 33 fixtures del corpus de fuzzing (§7.2) y de la tabla de nivel 1 son **reales**.
+
+> Llamar «fixture» a las dos cosas sin distinguirlas es la manera más fácil de creer que un formato está verificado contra el juego cuando sólo está verificado contra la lectura que alguien hizo del PDF.
 
 ---
 

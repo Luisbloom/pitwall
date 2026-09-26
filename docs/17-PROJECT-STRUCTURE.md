@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Estructura del proyecto"
 subtitle: "Árbol del repositorio con explicación de cada carpeta"
-version: "1.4"
+version: "1.5"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -48,11 +48,10 @@ pitwall/
 │   │   ├── config/              pw::config
 │   │   ├── mem/                 pw::mem    — BufferPool, SpscRing
 │   │   ├── net/                 pw::net    — UdpReceiver, ReplaySource, sockets
-│   │   ├── proto/               pw::proto  — SÓLO structs y static_assert
-│   │   │   ├── header.hpp
-│   │   │   ├── f1_2025/         packets.hpp, constants.hpp, catalogs.cpp
-│   │   │   └── f1_2026/         packets.hpp, constants.hpp, catalogs.cpp
-│   │   ├── decoder/             pw::decoder — interfaz, registro, un decoder por formato
+│   │   ├── proto/               pw::proto  — structs, constantes, static_assert y tablas
+│   │   │   ├── f1_2025/         catalogs.cpp (datos; las cabeceras, en include/pw/proto/)
+│   │   │   └── f1_2026/         catalogs.cpp (ídem)
+│   │   ├── decoder/             pw::decoder — interfaz, registro, viewAs<T>, un decoder por formato
 │   │   ├── domain/              pw::domain  — modelo normalizado, SIN dependencias
 │   │   ├── normalize/           pw::normalize — el único puente proto ↔ domain
 │   │   ├── state/               pw::state   — motor de estado, ramas, bus
@@ -188,8 +187,8 @@ El orden de las carpetas **no es alfabético**: sigue el flujo de dependencias, 
 |---|---|
 | `core/` | No depende de nada del proyecto |
 | `obs/`, `config/`, `mem/` | Sólo dependen de `core` |
-| `proto/` | **Sólo structs, constantes y `static_assert`.** Ninguna lógica. No conoce `domain` |
-| `decoder/` | Conoce `proto`. **No conoce `domain`** |
+| `proto/` | **Structs, constantes, `static_assert` y las tablas de datos del formato.** Ninguna lógica y ninguna presentación. No conoce `domain` |
+| `decoder/` | Conoce `proto`. **No conoce `domain`.** Valida, identifica y entrega una `ValidatedPacket`; aquí vive `viewAs<T>`. No llama a `normalize` |
 | `domain/` | **No depende de nada.** Ni siquiera de `proto` |
 | `normalize/` | **El único** que incluye a la vez `proto` y `domain` |
 | `state/` | Conoce `domain`. **No conoce `proto`** |
@@ -203,20 +202,33 @@ compilando en Linux y lo que hace que el shell sea sustituible si algún día hi
 
 #### Por qué `proto/` tiene un subdirectorio por formato
 
+Las cabeceras son **públicas** y viven en `include/pw/proto/`, como las de cualquier otro módulo; en
+`src/proto/` queda sólo lo que no forma parte de la interfaz, que en este módulo son las **tablas de
+datos** de cada formato:
+
 ```
-proto/
+core/include/pw/proto/
 ├── header.hpp              común a ambos: 29 bytes estables
 ├── f1_2025/
 │   ├── constants.hpp       kMaxCars = 22
 │   ├── packets.hpp         16 structs + static_assert
-│   └── catalogs.cpp        equipos, pilotos, circuitos de 2025
+│   └── catalogs.hpp        declaración de las tablas del formato
 └── f1_2026/
     ├── constants.hpp       kMaxCars = 24
     ├── packets.hpp         17 structs + static_assert
-    └── catalogs.cpp        equipos (485 Audi, 486 Cadillac), circuitos (42 Madrid)
+    └── catalogs.hpp        declaración de las tablas del formato
+
+core/src/proto/
+├── f1_2025/catalogs.cpp    datos: equipos, pilotos, circuitos de 2025
+└── f1_2026/catalogs.cpp    datos: equipos (485 Audi, 486 Cadillac), circuitos (42 Madrid)
 ```
 
-Añadir un formato 2027 es **añadir una carpeta**. Ninguna otra se toca (RNF-040). La estructura hace visible la propiedad que el diseño promete.
+Añadir un formato 2027 es **añadir una carpeta** en cada sitio. Ninguna otra se toca (RNF-040). La estructura hace visible la propiedad que el diseño promete.
+
+> **Los catálogos aquí son datos, no presentación** *(v1.5)*. `proto` guarda la correspondencia `id →
+> dato oficial del formato` y nada más. **Resolver** un id —y decidir qué se muestra cuando no está en
+> la tabla, «Desconocido (n)»— es de `normalize` (`04-ARCHITECTURE.md` §3.5), que es el único módulo
+> que puede hablar de presentación porque es el único que conoce el dominio.
 
 ### 3.4. `core/tools/`
 

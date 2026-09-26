@@ -1,7 +1,7 @@
 ---
 title: "PitWall — Arquitectura"
 subtitle: "Aplicación de escritorio Windows: componentes, fronteras, concurrencia y flujo de eventos"
-version: "1.5"
+version: "1.6"
 status: "Vigente"
 date: "2026-09-22"
 author: "Luis Miguel"
@@ -152,8 +152,9 @@ Espacios de nombres separados y estancos: `pw::proto::f1_2025` y `pw::proto::f1_
 - Los `struct` con `#pragma pack(push, 1)`, transcritos de la especificación.
 - Las constantes del formato.
 - Los `static_assert` de tamaño.
+- Las **tablas de catálogo del formato**: la correspondencia `id → dato oficial` de equipos, pilotos, circuitos, nacionalidades, modos, penalizaciones e infracciones, como datos `constexpr` (D4 de `05-DATA-MODEL.md`: el mismo número significa cosas distintas en 2025 y 2026).
 
-**No contienen lógica.** No incluyen ninguna cabecera del dominio. Un cambio de EA se refleja aquí y en ningún otro sitio de este módulo.
+**No contienen lógica.** No incluyen ninguna cabecera del dominio, no presentan datos y **no resuelven identificadores desconocidos**: un `id` que no está en la tabla no produce aquí ningún texto. Esa resolución tolerante es de `normalize` (§3.5). Un cambio de EA se refleja aquí y en ningún otro sitio de este módulo.
 
 ### 3.3. `decoder` — Validación y decodificación
 
@@ -164,19 +165,32 @@ Espacios de nombres separados y estancos: `pw::proto::f1_2025` y `pw::proto::f1_
 | `F1_2025_Decoder` / `F1_2026_Decoder` | Validan tamaño exacto y versión; producen una vista tipada sobre el buffer |
 
 ```cpp
+// Un paquete cuyo (formato, id, versión, tamaño) ya se validó. Es una VISTA:
+// no posee nada y vive lo que viva el buffer del que salió.
+struct ValidatedPacket {
+    std::uint16_t              format;    // m_packetFormat del que salió
+    PacketId                   id;
+    std::uint8_t               version;   // m_packetVersion observada
+    const PacketHeader*        header;    // apunta DENTRO de payload
+    std::span<const std::byte> payload;   // datagrama completo, tamaño ya exacto
+};
+
 class IProtocolDecoder {
 public:
     virtual ~IProtocolDecoder() = default;
     virtual std::uint16_t formatId() const noexcept = 0;
     virtual std::optional<std::size_t> expectedSize(PacketId) const noexcept = 0;
-    virtual std::span<const std::uint8_t> supportedVersions(PacketId) const noexcept = 0;
-    virtual DecodeResult decode(const PacketHeader&,
-                                std::span<const std::byte> payload,
-                                DomainSink&) const = 0;
+    virtual bool supportsVersion(PacketId, std::uint8_t) const noexcept = 0;
+    virtual Result<ValidatedPacket, DecodeStatus>
+        decode(const PacketHeader&, std::span<const std::byte> payload) const noexcept = 0;
 };
 ```
 
-El decoder **escribe en un `DomainSink`** en lugar de devolver un objeto. Esto evita asignaciones por paquete (RNF-013) y permite que el consumidor decida dónde vive el resultado.
+**El decoder no conoce `pw::domain` ni llama a `pw::normalize`.** Devuelve una `ValidatedPacket`, que es un struct trivialmente copiable de un puñado de bytes: **cero asignaciones por paquete** (RNF-013) y ninguna copia del datagrama. Quien la recibe obtiene el struct del protocolo con `viewAs<T>` (`06-REALTIME-PIPELINE.md` §4.1), cuya precondición de tamaño **ya está garantizada** por esta validación.
+
+La traducción a dominio es de `normalize` (§3.5), que se implementa en F1.3. Es lo que mantiene la frontera del principio E2: `decoder` conoce `proto`, **no** `domain`; `normalize` es el único que conoce los dos.
+
+> **Por qué una vista y no un sumidero con un método por paquete.** Un `sink` con un método por tipo tendría 17 métodos en 2026 y 16 en 2025 —33 en total—, y **la interfaz quedaría acoplada a los structs de cada formato**, que es justo lo que ADR-008 evita. La vista resuelve lo mismo con un struct y un método: el consumidor despacha por `id` y pide el tipo que le corresponde. Sin `variant`, sin borrado de tipos, sin `std::any`, sin RTTI y sin montón.
 
 ### 3.4. `domain` — Modelo normalizado
 
@@ -223,7 +237,7 @@ Es el **único** módulo que incluye a la vez cabeceras de `protocol` y de `doma
 - La conversión de centinelas a ausencia.
 - La traducción de enumerados dependientes del formato (`ersDeployMode` 3: *overtake* / *boost*).
 - La aplicación de la política de telemetría restringida por participante.
-- La resolución de catálogos (`teamId` → nombre de equipo del año correcto).
+- La resolución de catálogos (`teamId` → nombre de equipo del año correcto) **y su fallback presentable**: un `id` que no está en la tabla del formato se resuelve a «Desconocido (n)», nunca a un fallo (RF-111). Las tablas viven en `proto` (§3.2); resolverlas y decidir qué se muestra, aquí.
 
 ### 3.6. `session-state` — El propietario del estado
 
