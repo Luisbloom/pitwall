@@ -3,7 +3,14 @@
 #
 #     ctest --preset debug --output-on-failure      toda la suite
 #     ctest --preset debug -R "core"                solo un modulo
-#     ctest --preset debug -R "RF-804"              por requisito (RNF-085)
+#     ctest --preset debug -R "proto"               idem, por nombre de test
+#
+# OJO: -R filtra el NOMBRE del test en CTest -el prefijo del ejecutable mas el
+# nombre del caso-, no las etiquetas de Catch2. Filtrar por [RF-804] o
+# [F1.2a-01] con -R devuelve CERO tests y ningun error. Para ir por etiqueta hay
+# que invocar el binario:
+#
+#     build/debug/bin/pw_proto_tests.exe "[F1.2a-01]"
 #
 # Las pruebas viven junto a lo que prueban (E5 de 17-PROJECT-STRUCTURE.md).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +85,7 @@ pw_add_test_executable(pw_proto_tests
     SOURCES
         unit/proto/test_packet_header.cpp
         unit/proto/test_f1_2026_constants.cpp
+        unit/proto/test_f1_2026_packets.cpp
     LIBRARIES pw_proto)
 
 # Herramientas auxiliares (F1.1-13): la logica de pw-listen, sin lanzar el
