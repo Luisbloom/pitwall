@@ -70,6 +70,16 @@ pw_add_test_executable(pw_net_tests
         unit/net/test_receiver_shutdown.cpp
     LIBRARIES pw_net pw_config)
 
+# Protocolo (F1.2a): la cabecera comun y las constantes del formato 2026. La
+# mayor parte de la verificacion de esta capa son static_assert, asi que si algo
+# esta mal transcrito este ejecutable NO COMPILA; estas pruebas cubren lo que el
+# compilador no puede afirmar por si solo.
+pw_add_test_executable(pw_proto_tests
+    SOURCES
+        unit/proto/test_packet_header.cpp
+        unit/proto/test_f1_2026_constants.cpp
+    LIBRARIES pw_proto)
+
 # Herramientas auxiliares (F1.1-13): la logica de pw-listen, sin lanzar el
 # proceso y sin generar un Ctrl+C real.
 pw_add_test_executable(pw_tools_tests

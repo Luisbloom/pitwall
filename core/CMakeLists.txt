@@ -54,6 +54,16 @@ target_include_directories(pw_mem PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_link_libraries(pw_mem PUBLIC pw_core Threads::Threads)
 pw_target_warnings(pw_mem)
 
+# ── pw::proto — descripcion estatica del protocolo. Sin logica ──────────────
+#
+# Cabeceras y nada mas: structs transcritos, constantes por formato y sus
+# static_assert. No tiene .cpp porque no hay nada que ejecutar, asi que es un
+# objetivo INTERFACE. Depende solo de core (tools/check_deps.py).
+add_library(pw_proto INTERFACE)
+add_library(pw::proto ALIAS pw_proto)
+target_include_directories(pw_proto INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(pw_proto INTERFACE cxx_std_20)
+
 # ── pw::net — fuentes de datagramas. Es la capa de aislamiento de plataforma ─
 #
 # El unico objetivo del nucleo que enlaza una biblioteca del sistema operativo.
