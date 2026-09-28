@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Pipeline de tiempo real"
 subtitle: "UDP → decode → normalize → state → process → persist → transporte interno → interfaz"
-version: "1.9"
+version: "1.10"
 status: "Vigente"
-date: "2026-09-22"
+date: "2026-09-28"
 author: "Luis Miguel"
 docid: "PW-RTP-006"
 ---
@@ -408,7 +408,7 @@ captura, la persistencia, el orden global de `Core` (`09-BACKEND-PLAN.md` §5), 
 ventana llegan en sus fases. `Ctrl+C` de extremo a extremo lo implementa `pw-listen` (F1.1-13): el
 manejador del sistema **sólo marca una bandera**, y el hilo de control es quien llama a
 `request_stop()` y ejecuta este mismo orden. La comprobación con el juego real sigue siendo manual
-(`16-DEVELOPMENT-GUIDE.md` §13.3).
+(`16-DEVELOPMENT-GUIDE.md` §13.2).
 
 ---
 
@@ -874,4 +874,4 @@ Consultadas el 11 de septiembre de 2026.
 
 ---
 
-*Fin de `PW-RTP-006` v1.2*
+*Fin de `PW-RTP-006` v1.10*

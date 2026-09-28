@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Arquitectura"
 subtitle: "Aplicación de escritorio Windows: componentes, fronteras, concurrencia y flujo de eventos"
-version: "1.6"
+version: "1.7"
 status: "Vigente"
-date: "2026-09-22"
+date: "2026-09-28"
 author: "Luis Miguel"
 docid: "PW-ARC-004"
 ---
@@ -154,7 +154,15 @@ Espacios de nombres separados y estancos: `pw::proto::f1_2025` y `pw::proto::f1_
 - Los `static_assert` de tamaño.
 - Las **tablas de catálogo del formato**: la correspondencia `id → dato oficial` de equipos, pilotos, circuitos, nacionalidades, modos, penalizaciones e infracciones, como datos `constexpr` (D4 de `05-DATA-MODEL.md`: el mismo número significa cosas distintas en 2025 y 2026).
 
-**No contienen lógica.** No incluyen ninguna cabecera del dominio, no presentan datos y **no resuelven identificadores desconocidos**: un `id` que no está en la tabla no produce aquí ningún texto. Esa resolución tolerante es de `normalize` (§3.5). Un cambio de EA se refleja aquí y en ningún otro sitio de este módulo.
+- Funciones `constexpr` **puras de consulta** sobre esos datos, como preguntar si el formato define un `packetId` o cuál es su tamaño esperado.
+
+**No contienen lógica de proceso** *(v1.7)*. Concretamente, en `pw::proto` **no hay**: decodificación, validación de datagramas, normalización, estado, reglas de dominio ni presentación. No incluyen ninguna cabecera del dominio y **no resuelven identificadores desconocidos**: un `id` que no está en la tabla no produce aquí ningún texto. Esa resolución tolerante es de `normalize` (§3.5).
+
+> La frontera no es «cero funciones», que sería una regla imposible de sostener: consultar una tabla
+> `constexpr` es parte de describirla. La frontera es **qué sabe el módulo**. `proto` sabe cómo es el
+> formato y nada más; no sabe qué hacer con un datagrama, ni qué significa un valor para el usuario.
+
+Un cambio de EA se refleja aquí y en ningún otro sitio de este módulo.
 
 ### 3.3. `decoder` — Validación y decodificación
 
@@ -589,4 +597,4 @@ Consultadas el 11 de septiembre de 2026.
 
 ---
 
-*Fin de `PW-ARC-004` v1.2*
+*Fin de `PW-ARC-004` v1.7*

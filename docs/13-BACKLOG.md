@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Backlog"
 subtitle: "Epics, historias y tareas con prioridad, esfuerzo, dependencias y criterios de aceptación"
-version: "1.3"
+version: "1.4"
 status: "Vigente"
-date: "2026-09-22"
+date: "2026-09-28"
 author: "Luis Miguel"
 docid: "PW-BKL-013"
 ---
@@ -168,10 +168,13 @@ Como sistema, quiero recibir todos los datagramas que emite el juego, porque UDP
 | `TASK-UDP-003-02` | Tabla de orígenes por índice |
 | `TASK-UDP-003-03` | Detección de desconexión tras N segundos |
 
-### STORY-UDP-004 — Herramienta `pw-listen`
+### STORY-UDP-004 — Herramientas de consola
 **P1 · 2 puntos · dep. STORY-UDP-001**
 
-Utilidad de consola que escucha e imprime estadísticas. Es la primera prueba real contra el juego.
+| Tarea | Detalle |
+|---|---|
+| `TASK-UDP-004-01` | **`pw-listen`**: escucha e imprime estadísticas. Es la primera prueba real contra el juego |
+| `TASK-UDP-004-02` | **`pw-load`**: generador UDP sintético de carga sostenida, con el que se verifica `TASK-UDP-001-11` (RNF-001). No habla el protocolo de F1 |
 
 ---
 
@@ -726,4 +729,4 @@ todas dentro del WebView2. Si Diagnostics llega al final, todo lo anterior se de
 
 ---
 
-*Fin de `PW-BKL-013` v1.1*
+*Fin de `PW-BKL-013` v1.4*

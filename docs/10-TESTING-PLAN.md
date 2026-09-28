@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Plan de pruebas"
 subtitle: "Protocolo, unitarias, integración, extremo a extremo en WebView2, replay, fuzzing y rendimiento"
-version: "1.2"
+version: "1.3"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-28"
 author: "Luis Miguel"
 docid: "PW-TST-010"
 ---
@@ -290,10 +290,15 @@ Toda entrada que provoque un fallo se **añade permanentemente** como caso de re
 
 ## 8. Nivel 6 — Rendimiento
 
+Las dos primeras se ejecutan con las herramientas de F1.1: **`pw-load`** genera el tráfico UDP
+sintético y **`pw-listen`** cuenta lo recibido; el procedimiento de dos terminales está en
+`16-DEVELOPMENT-GUIDE.md` §13.4. Son herramientas de diagnóstico, no parte del producto, y su
+tráfico **no es protocolo de F1**.
+
 | Prueba | Método | Umbral |
 |---|---|---|
-| Recepción sostenida | Inyección UDP a 415 datagramas/s durante 1 h | 0 pérdidas |
-| Recepción a 2,4× | 1000 datagramas/s durante 30 min | 0 pérdidas (RNF-001) |
+| Recepción sostenida | Inyección UDP a 415 datagramas/s durante 1 h (`pw-load`) | 0 pérdidas |
+| Recepción a 2,4× | 1000 datagramas/s durante 30 min (`pw-load` → `pw-listen`) | 0 pérdidas (RNF-001) · **✅ validado en F1.1** |
 | Ráfagas | 5000 datagramas en 200 ms | 0 pérdidas con `SO_RCVBUF` de 4 MB |
 | Latencia de decodificación | Histograma sobre 1 M de datagramas | p99 < 50 µs |
 | Latencia extremo a extremo | Marca de tiempo medida dentro del WebView2 | p95 < 150 ms |
@@ -344,7 +349,14 @@ TEST_CASE("RF-211: la telemetria restringida no se expone como cero", "[normaliz
 }
 ```
 
-Un informe de integración continua cruza los identificadores de las etiquetas con los requisitos de `01-REQUIREMENTS.md` y **falla si algún requisito `MUST` no tiene prueba** (RNF-085, TST-04).
+**Objetivo previsto:** un informe de integración continua que cruce los identificadores de las etiquetas con los requisitos de `01-REQUIREMENTS.md` y **falle si algún requisito `MUST` no tiene prueba** (RNF-085, TST-04).
+
+> **Estado real:** ese informe **todavía no existe** *(v1.3)*. Las etiquetas sí se escriben y sirven,
+> pero hay que consultarlas a mano, y **no por CTest**: `ctest -R` filtra nombres de test, no
+> etiquetas de Catch2, así que `-R "RF-211"` devuelve cero tests sin dar error. La consulta por
+> etiqueta se hace invocando el binario —`./build/debug/bin/pw_proto_tests.exe "[F1.2a-01]"`— como
+> describe `16-DEVELOPMENT-GUIDE.md` §6.1. Mientras el informe no exista, **nada garantiza
+> automáticamente que un `MUST` nuevo llegue con prueba**.
 
 ---
 
@@ -446,8 +458,18 @@ Reconocido explícitamente, porque fingir que todo está automatizado sería fal
 | Comportamiento de la ventana entre monitores con PPP distinto | Requiere dos monitores | Al implementar RF-627 |
 | Comportamiento con un parche nuevo del juego | Requiere el parche | Al publicarse |
 | Utilidad de las conclusiones del ingeniero | Juicio de dominio | Fase 3 |
+| **Recepción real con el juego emitiendo** | Requiere el juego en una sesión en pista | Cada hito de adquisición |
+| **Carga sostenida de RNF-001** | Dura 30 min y es sensible al ruido de la máquina | Programada |
 
 Cada uno tiene una lista de comprobación escrita en `docs/16-DEVELOPMENT-GUIDE.md`, para que la sesión de pruebas manuales sea repetible aunque no sea automática.
+
+Las dos últimas se apoyan en las herramientas de consola de F1.1, que existen precisamente porque
+esas pruebas no se pueden automatizar del todo *(v1.3)*:
+
+| Herramienta | Para qué | Qué **no** hace |
+|---|---|---|
+| **`pw-listen`** | Diagnóstico de recepción real: escucha, cuenta datagramas, bytes, tamaños, orígenes y descartes, e imprime un resumen al parar | No decodifica: en esta fase sólo demuestra que los bytes entran |
+| **`pw-load`** | Generador UDP sintético para carga sostenida; es con lo que se verifica **RNF-001** | No habla el protocolo de F1: su contenido es un patrón determinista |
 
 ---
 
@@ -464,4 +486,4 @@ Consultadas el 11 de septiembre de 2026.
 
 ---
 
-*Fin de `PW-TST-010` v1.1*
+*Fin de `PW-TST-010` v1.3*

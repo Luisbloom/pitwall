@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Estructura del proyecto"
 subtitle: "Árbol del repositorio con explicación de cada carpeta"
-version: "1.5"
+version: "1.6"
 status: "Vigente"
-date: "2026-09-22"
+date: "2026-09-28"
 author: "Luis Miguel"
 docid: "PW-STR-017"
 ---
@@ -187,7 +187,7 @@ El orden de las carpetas **no es alfabético**: sigue el flujo de dependencias, 
 |---|---|
 | `core/` | No depende de nada del proyecto |
 | `obs/`, `config/`, `mem/` | Sólo dependen de `core` |
-| `proto/` | **Structs, constantes, `static_assert` y las tablas de datos del formato.** Ninguna lógica y ninguna presentación. No conoce `domain` |
+| `proto/` | **Structs, constantes, enums, `static_assert`, tablas de datos del formato y consultas `constexpr` puras sobre ellas.** Sin decodificación, proceso, estado ni presentación. No conoce `domain` |
 | `decoder/` | Conoce `proto`. **No conoce `domain`.** Valida, identifica y entrega una `ValidatedPacket`; aquí vive `viewAs<T>`. No llama a `normalize` |
 | `domain/` | **No depende de nada.** Ni siquiera de `proto` |
 | `normalize/` | **El único** que incluye a la vez `proto` y `domain` |
@@ -208,13 +208,13 @@ datos** de cada formato:
 
 ```
 core/include/pw/proto/
-├── header.hpp              común a ambos: 29 bytes estables
+├── header.hpp              común a ambos: 29 bytes estables, y PacketId
 ├── f1_2025/
-│   ├── constants.hpp       kMaxCars = 22
+│   ├── constants.hpp       cardinalidades, tamaños esperados y su consulta
 │   ├── packets.hpp         16 structs + static_assert
 │   └── catalogs.hpp        declaración de las tablas del formato
 └── f1_2026/
-    ├── constants.hpp       kMaxCars = 24
+    ├── constants.hpp       ídem para 2026
     ├── packets.hpp         17 structs + static_assert
     └── catalogs.hpp        declaración de las tablas del formato
 
@@ -224,6 +224,12 @@ core/src/proto/
 ```
 
 Añadir un formato 2027 es **añadir una carpeta** en cada sitio. Ninguna otra se toca (RNF-040). La estructura hace visible la propiedad que el diseño promete.
+
+**Qué hay exactamente en `constants.hpp`** *(v1.6)*: `kPacketFormat`, las cardinalidades del formato
+(`kMaxCars`…), la tabla `constexpr` de **tamaños esperados** `kPacketSizes` indexada por `packetId`
+—el único sitio donde viven esos números para ese formato (RNF-041)— y las dos consultas `constexpr`
+puras sobre ella, `isKnownPacketId()` y `expectedSize()`. No hay un `packet_sizes.hpp` aparte: los
+tamaños son constantes del formato como las demás.
 
 > **Los catálogos aquí son datos, no presentación** *(v1.5)*. `proto` guarda la correspondencia `id →
 > dato oficial del formato` y nada más. **Resolver** un id —y decidir qué se muestra cuando no está en
@@ -343,4 +349,4 @@ Separar los datos del repositorio evita el accidente clásico de comprometer gig
 
 ---
 
-*Fin de `PW-STR-017` v1.1*
+*Fin de `PW-STR-017` v1.6*

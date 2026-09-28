@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Grabación y reproducción"
 subtitle: "Formato de captura, grabador, motor de replay y fixtures"
-version: "1.1"
+version: "1.2"
 status: "Vigente"
-date: "2026-09-11"
+date: "2026-09-28"
 author: "Luis Miguel"
 docid: "PW-REC-007"
 ---
@@ -251,7 +251,7 @@ void ReplayScheduler::run(std::stop_token stop) {
 
 La velocidad 4× ejercita el sistema a **4 veces la carga real**, lo que somete a presión las etapas que van **después** de la recepción: decodificación, normalización, estado y transporte a la interfaz.
 
-> **No sustituye a RNF-001** *(v1.1)*. El replay inyecta registros ya capturados **desde un fichero**: no hay socket UDP, ni buffer de recepción del sistema, ni `SO_RCVBUF`, ni T1 compitiendo con la red. RNF-001 se verifica como fija `01-REQUIREMENTS.md`: con un **generador sintético durante 30 min** —`pw-load` contra `pw-listen`, `16-DEVELOPMENT-GUIDE.md` §13.5—, y así se validó en F1.1. La carga de replay a 4× es una prueba **complementaria** del resto de la tubería.
+> **No sustituye a RNF-001** *(v1.1)*. El replay inyecta registros ya capturados **desde un fichero**: no hay socket UDP, ni buffer de recepción del sistema, ni `SO_RCVBUF`, ni T1 compitiendo con la red. RNF-001 se verifica como fija `01-REQUIREMENTS.md`: con un **generador sintético durante 30 min** —`pw-load` contra `pw-listen`, `16-DEVELOPMENT-GUIDE.md` §13.4—, y así se validó en F1.1. La carga de replay a 4× es una prueba **complementaria** del resto de la tubería.
 
 ### 4.5. Búsqueda temporal
 
@@ -436,4 +436,4 @@ Consultadas el 11 de septiembre de 2026.
 
 ---
 
-*Fin de `PW-REC-007` v1.0*
+*Fin de `PW-REC-007` v1.2*

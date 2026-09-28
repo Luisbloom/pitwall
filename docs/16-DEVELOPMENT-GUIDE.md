@@ -1,9 +1,9 @@
 ---
 title: "PitWall — Guía de desarrollo"
 subtitle: "De cero a un sistema funcionando: herramientas, módulos, pruebas, ejecución y depuración"
-version: "1.5"
+version: "1.6"
 status: "Vigente"
-date: "2026-09-22"
+date: "2026-09-28"
 author: "Luis Miguel"
 docid: "PW-DEV-016"
 ---
@@ -214,11 +214,26 @@ Los `static_assert` fallan en compilación, así que **una compilación limpia y
 
 ```bash
 ctest --preset debug --output-on-failure          # todo
-ctest --preset debug -R "proto"                   # sólo protocolo
-ctest --preset debug -R "RF-211"                  # por requisito
+ctest --preset debug -R "proto"                   # los tests cuyo NOMBRE contiene «proto»
 ctest --preset asan --output-on-failure           # con desinfectante de direcciones
-ctest --preset tsan -R "concurrency"              # con desinfectante de hilos
+ctest --preset tsan --output-on-failure           # con desinfectante de hilos (Linux + Clang)
 ```
+
+> **`-R` filtra nombres de CTest, no etiquetas de Catch2.** Cada caso se registra con el prefijo de
+> su ejecutable —`pw_proto_tests.`, `pw_net_tests.`…— seguido del nombre del caso, y `-R` busca en
+> esa cadena. Las etiquetas `[RF-211]`, `[F1.2a-01]` o `[concurrency]` **no forman parte de ella**,
+> así que filtrar por ellas devuelve **cero tests y ningún error**, que es la forma más silenciosa de
+> creer que algo se ha probado.
+>
+> Para seleccionar por etiqueta hay que invocar el binario de Catch2 directamente:
+>
+> ```bash
+> ./build/debug/bin/pw_proto_tests.exe "[F1.2a-01]"      # por etiqueta
+> ./build/debug/bin/pw_net_tests.exe "[RF-012]"          # ídem
+> ./build/debug/bin/pw_proto_tests.exe --list-tests      # ver qué hay
+> ```
+>
+> La trazabilidad requisito ↔ prueba de `10-TESTING-PLAN.md` §10 se comprueba **así**, por binario.
 
 ### 6.2. Fuzzing
 
@@ -517,7 +532,7 @@ Lo que no se puede automatizar, con lista de comprobación para que al menos sea
 - [ ] Las cifras se leen a 1 m de distancia
 - [ ] La latencia se percibe como instantánea
 
-### 13.3. Sesión con `pw-listen` y el juego real (F1.1-13)
+### 13.2. Sesión con `pw-listen` y el juego real (F1.1-13)
 
 `pw-listen` no decodifica nada: sólo demuestra que los bytes entran bien. Para la referencia de
 ~415 datagramas/s, **el juego debe estar a 60 Hz**; a 20 Hz la tasa será menor y eso no es un fallo.
@@ -569,12 +584,12 @@ envían van todos juntos y nunca se separan entre fotogramas.
 > 10. Los 5 restantes quedaron contados y **no listados**, así que no se identifican aquí. No afecta a
 > ningún criterio de F1.1.
 
-> Esta prueba **no** valida la recepción desde la LAN (§13.4): el emisor era el mismo PC. Tampoco
+> Esta prueba **no** valida la recepción desde la LAN (§13.3): el emisor era el mismo PC. Tampoco
 > sustituye a la prueba de rendimiento de `10` §8 —«415 datagramas/s durante 1 h»—, que es una
 > inyección sostenida y controlada, mientras que ésta es una sesión real con menús, silencios y
 > variaciones de ritmo. Ambas siguen pendientes.
 
-### 13.4. Recepción desde la LAN (DoD de F1.1)
+### 13.3. Recepción desde la LAN (DoD de F1.1)
 
 - [ ] `pw-listen --bind 0.0.0.0 --port 20777` en el PC
 - [ ] El emisor (consola u otro PC) apunta a la **IP del PC**, no a `127.0.0.1`
@@ -584,7 +599,7 @@ envían van todos juntos y nunca se separan entre fotogramas.
 > Que el `bind` a `0.0.0.0` funcione **no** demuestra que el cortafuegos y la LAN estén bien: eso es
 > justo lo que comprueba esta prueba manual.
 
-### 13.5. Carga sintética a 1000 datagramas/s (RNF-001, F1.1-14)
+### 13.4. Carga sintética a 1000 datagramas/s (RNF-001, F1.1-14)
 
 `pw-load` emite tráfico sintético —**no** paquetes de F1— para comprobar que el receptor aguanta
 **2,4× el pico real** del juego. Dos terminales:
@@ -650,13 +665,13 @@ El receptor se detuvo con una **pulsación manual de `Ctrl+C`**: imprimió su re
 de forma ordenada, **sin terminación forzada**. Eso cubre además el criterio de la DoD «`Ctrl+C`
 cierra limpiamente sin fugas ni bloqueos».
 
-### 13.2. Configuración en consola (al implementar RF-003)
+### 13.5. Configuración en consola (al implementar RF-003)
 
 - [ ] La consola encuentra el PC con la IP configurada
 - [ ] Los datagramas llegan con bind `0.0.0.0`
 - [ ] Los nombres se muestran según la plataforma
 
-### 13.3. Tras un parche del juego
+### 13.6. Tras un parche del juego
 
 - [ ] `m_gameMinorVersion` ha cambiado y se registra
 - [ ] `bad_size`, `unknown_id` y `unknown_version` siguen a cero
@@ -697,4 +712,4 @@ Si esta guía se lee al inicio de la primera sesión de desarrollo, el orden es:
 
 ---
 
-*Fin de `PW-DEV-016` v1.1*
+*Fin de `PW-DEV-016` v1.6*
