@@ -2,7 +2,9 @@
 
 **Aplicación de escritorio de telemetría e ingeniería de carrera para EA SPORTS™ F1® 25 y F1® 25: 2026 Season Pack.**
 
-Se instala, se abre y funciona. Un único `PitWall.exe` con su propia ventana: núcleo en C++20/23 e
+> 🚧 **Proyecto en desarrollo, en fase inicial.** Lo que se describe a continuación es el objetivo del proyecto: la mayor parte todavía no está implementada.
+
+La idea: un único `PitWall.exe` con su propia ventana: núcleo en C++20/23 e
 interfaz React + TypeScript alojada en WebView2, todo en el mismo proceso y todo en local.
 
 > **Estado actual: fase F0 (cimientos) completada.** El repositorio compila, prueba y ejecuta un
@@ -12,7 +14,7 @@ interfaz React + TypeScript alojada en WebView2, todo en el mismo proceso y todo
 
 ---
 
-## La experiencia
+## La experiencia (objetivo)
 
 1. Instalas PitWall y abres `PitWall.exe`.
 2. Se abre una ventana propia. **No un navegador.**
@@ -24,7 +26,7 @@ No hace falta navegador, terminal, Docker, ni saber qué es un puerto o un WebSo
 
 ---
 
-## Qué hace
+## Qué hará
 
 | | |
 |---|---|
