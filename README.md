@@ -7,10 +7,10 @@
 La idea: un único `PitWall.exe` con su propia ventana: núcleo en C++20/23 e
 interfaz React + TypeScript alojada en WebView2, todo en el mismo proceso y todo en local.
 
-> **Estado actual: fase F0 (cimientos) completada.** El repositorio compila, prueba y ejecuta un
-> binario todavía vacío: `pw::core`, `pw::obs` y `pw::config` con su suite de pruebas. La recepción
-> UDP llega en F1.1 y la ventana de escritorio en F1.6b.
-> La especificación de ingeniería completa vive en [`docs/`](docs/).
+> **Estado actual: fase F1.1 en curso (recepción UDP).** Completados la fase F0 (cimientos:
+> `pw::core`, `pw::obs` y `pw::config` con su suite de pruebas) y los primeros bloques de F1.1:
+> `BufferPool`, `SpscRing`, capa UDP y receptor, registro de origen y contadores UDP.
+> La ventana de escritorio llega en F1.6b. La especificación de ingeniería completa vive en [`docs/`](docs/).
 
 ---
 
